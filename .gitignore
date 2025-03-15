@@ -1,0 +1,10 @@
+managed_components/
+**/*.component_hash
+**/*.pyc
+.venv/
+*build*/
+**/__pycache__/
+sdkconfig.old
+**/*.lock
+*.spdx
+.vscode/
