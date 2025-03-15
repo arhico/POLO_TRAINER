@@ -171,7 +171,9 @@ static char const* string_desc_arr[] = {
 // mount the partition and show all the files in BASE_PATH
 
 char name[33];
-static void _mount_and_find_1_wav() {
+char full_name[512];
+
+IRAM_ATTR static void _mount_and_find_1_wav() {
     static bool name_obtained = false;
     ESP_LOGI(TAG , "Mount storage...");
     ESP_ERROR_CHECK(tinyusb_msc_storage_mount(BASE_PATH));
@@ -214,8 +216,8 @@ static void _mount_and_find_1_wav() {
                             name[k] = d->d_name[k];
                         }
 
-                        // snprintf(name , 32 , "%s" , d->d_name);
-                        ESP_LOGW(TAG , "name obtained: %s" , name);
+                        sprintf(full_name , "%s/%s" , BASE_PATH , d->d_name);
+                        ESP_LOGW(TAG , "name obtained: %s\nfullname: %s" , name , full_name);
                     }
 
                     break;
@@ -427,9 +429,9 @@ clean:
 
 // const double nanosec_per_cpu_tick = 1000 / 240.0; // 4 ns @ 240 MHz
 // const uint32_t cpu_ticks_per_period = (uint32_t)(aud_sample_len_ns / nanosec_per_cpu_tick);
-const int32_t OVERSAMPLING = 2;
+const int32_t OVERSAMPLING = 4;
 
-static esp_err_t dac_output_with_dither(uint8_t* buf , dac_continuous_handle_t dac_contin , size_t len) {
+IRAM_ATTR static esp_err_t dac_output_with_dither(uint8_t* buf , dac_continuous_handle_t dac_contin , size_t len) {
     // size_t bytes_written = 0;
 
         // uint16_t value_16_bit = 0;
@@ -484,17 +486,17 @@ static esp_err_t dac_output_with_dither(uint8_t* buf , dac_continuous_handle_t d
     // size_t loaded = 0;
     // dac_write_data_synchronously(dac_contin , (uint8_t*)buf_8_bit_msb , len / 2);
     // dac_continuous_write(dac_contin , buf_8_bit_msb , len / 2 , NULL , 1);
-    dac_continuous_write(dac_contin , buf_8_bit_oversampled , samples_count * OVERSAMPLING , NULL , 100);
+    dac_continuous_write(dac_contin , buf_8_bit_oversampled , samples_count * OVERSAMPLING , NULL , -1);
 
     // bsp_extra_i2s_write(buf , len , &bytes_written , 0);
     return ESP_OK;
 }
 
-int AUDIO_SAMPLE_RATE = 44100;
+const int AUDIO_SAMPLE_RATE = 44100;
 
-#define AUDIO_BUFFER 512
+#define AUDIO_BUFFER 2048
 
-esp_err_t play_wav(char* fp , dac_continuous_handle_t dac) {
+IRAM_ATTR esp_err_t play_wav(char* fp , dac_continuous_handle_t dac) {
     ESP_LOGI(TAG , "playing: %s" , fp);
     FILE* fh = fopen(fp , "rb");
     if (fh == NULL) {
@@ -506,7 +508,7 @@ esp_err_t play_wav(char* fp , dac_continuous_handle_t dac) {
     fseek(fh , 44 , SEEK_SET);
 
     // create a writer buffer
-    uint8_t* buf = calloc(AUDIO_BUFFER , sizeof(uint8_t));
+    uint8_t* buf = (uint8_t*)calloc(AUDIO_BUFFER , sizeof(uint8_t));
     size_t bytes_read = 0;
     size_t bytes_written = 0;
 
@@ -519,9 +521,9 @@ esp_err_t play_wav(char* fp , dac_continuous_handle_t dac) {
       // write the buffer to the i2s
       // i2s_channel_write(tx_handle, buf, bytes_read * sizeof(int16_t), &bytes_written, portMAX_DELAY);
         bytes_read = fread(buf , sizeof(uint8_t) , AUDIO_BUFFER , fh);
-        for (int i = 0; i < bytes_read; i++) {
-            // ESP_LOGI(TAG , "bytes: %02x" , buf[i]);
-        }
+        // for (int i = 0; i < bytes_read; i++) {
+        //     // ESP_LOGI(TAG , "bytes: %02x" , buf[i]);
+        // }
         dac_output_with_dither(buf , dac , bytes_read);
         // dac_continuous_write(dac , (uint8_t*)buf , bytes_read , NULL , 100);
 
@@ -535,7 +537,7 @@ esp_err_t play_wav(char* fp , dac_continuous_handle_t dac) {
 }
 
 
-void app_main(void) {
+extern "C" void app_main(void) {
     ESP_LOGI(TAG , "Initializing storage...");
 
 #ifdef CONFIG_EXAMPLE_STORAGE_MEDIA_SPIFLASH
@@ -545,7 +547,7 @@ void app_main(void) {
     const tinyusb_msc_spiflash_config_t config_spi = {
         .wl_handle = wl_handle,
         .callback_mount_changed = storage_mount_changed_cb,  /* First way to register the callback. This is while initializing the storage. */
-        .mount_config.max_files = 5,
+        .mount_config = {.max_files = 5},
     };
     ESP_ERROR_CHECK(tinyusb_msc_storage_init_spiflash(&config_spi));
     ESP_ERROR_CHECK(tinyusb_msc_register_callback(TINYUSB_MSC_EVENT_MOUNT_CHANGED , storage_mount_changed_cb)); /* Other way to register the callback i.e. registering using separate API. If the callback had been already registered, it will be overwritten. */
@@ -613,8 +615,8 @@ void app_main(void) {
     dac_continuous_handle_t dac_handle;
     dac_continuous_config_t cont_cfg = {
         .chan_mask = DAC_CHANNEL_MASK_ALL,
-        .desc_num = 4,
-        .buf_size = 2048,
+        .desc_num = 8,
+        .buf_size = 4096,
         .freq_hz = AUDIO_SAMPLE_RATE * OVERSAMPLING,
         .offset = 0,
         .clk_src = DAC_DIGI_CLK_SRC_APLL,   // Using APLL as clock source to get a wider frequency range
@@ -626,7 +628,8 @@ void app_main(void) {
          *      - channel 0: A C E
          *      - channel 1: B D F
          */
-        .chan_mode = DAC_CHANNEL_MODE_SIMUL,
+        .chan_mode = DAC_CHANNEL_MODE_ALTER,
+        // .chan_mode = DAC_CHANNEL_MODE_SIMUL,
     };
     /* Allocate continuous channels */
     ESP_ERROR_CHECK(dac_continuous_new_channels(&cont_cfg , &dac_handle));
@@ -668,7 +671,7 @@ void app_main(void) {
             timeout++;
         } else {
             if (timeout) {
-                play_wav("/data/ZGD_Clap_124.wav" , dac_handle);
+                play_wav(full_name , dac_handle);
             }
             timeout = 0;
         }

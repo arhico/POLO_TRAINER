@@ -5,7 +5,7 @@ if(CONFIG_EXAMPLE_STORAGE_MEDIA_SPIFLASH)
 endif()
 
 idf_component_register(
-    SRCS "tusb_msc_main.c"
+    SRCS "polo_trainer.cpp"
     INCLUDE_DIRS .
     PRIV_REQUIRES "${priv_requires}"
 )
