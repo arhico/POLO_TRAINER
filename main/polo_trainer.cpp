@@ -41,7 +41,7 @@
 #endif
 #endif
 
-static const char* TAG = "example_main";
+static const char* TAG = "polo_trainer";
 static esp_console_repl_t* repl = NULL;
 
 /* TinyUSB descriptors
@@ -429,7 +429,7 @@ clean:
 
 // const double nanosec_per_cpu_tick = 1000 / 240.0; // 4 ns @ 240 MHz
 // const uint32_t cpu_ticks_per_period = (uint32_t)(aud_sample_len_ns / nanosec_per_cpu_tick);
-const int32_t OVERSAMPLING = 4;
+const uint32_t OVERSAMPLING = 4;
 
 IRAM_ATTR static esp_err_t dac_output_with_dither(uint8_t* buf , dac_continuous_handle_t dac_contin , size_t len) {
     // size_t bytes_written = 0;
@@ -492,17 +492,77 @@ IRAM_ATTR static esp_err_t dac_output_with_dither(uint8_t* buf , dac_continuous_
     return ESP_OK;
 }
 
-const int AUDIO_SAMPLE_RATE = 44100;
+// uint32_t AUDIO_SAMPLE_RATE = 44100;
 
 #define AUDIO_BUFFER 2048
 
-IRAM_ATTR esp_err_t play_wav(char* fp , dac_continuous_handle_t dac) {
+IRAM_ATTR esp_err_t play_wav(char* fp) {
+
     ESP_LOGI(TAG , "playing: %s" , fp);
     FILE* fh = fopen(fp , "rb");
     if (fh == NULL) {
         ESP_LOGE(TAG , "Failed to open file");
         return ESP_ERR_INVALID_ARG;
     }
+
+    // read sample rate
+    union four_bytes_union_t {
+        uint8_t bytes[4];
+        uint32_t glued;
+    } samplerate_union;
+
+    union two_bytes_union_t {
+        uint8_t bytes[2];
+        uint16_t glued;
+    } bitdepth_union;
+
+    two_bytes_union_t channels_union;
+
+    fseek(fh , 22 , SEEK_SET);
+    fread(channels_union.bytes , sizeof(uint8_t) , 2 , fh);
+
+    fseek(fh , 24 , SEEK_SET);
+    fread(samplerate_union.bytes , sizeof(uint8_t) , 4 , fh);
+    fseek(fh , 34 , SEEK_SET);
+    fread(bitdepth_union.bytes , sizeof(uint8_t) , 2 , fh);
+    ESP_LOGI(TAG , "wave header samplerate: %lu, bitdepth: %u, channels %u" , samplerate_union.glued , bitdepth_union.glued , channels_union.glued);
+
+
+    dac_continuous_handle_t dac_handle;
+    dac_continuous_config_t cont_cfg = {
+        .chan_mask = DAC_CHANNEL_MASK_ALL,
+        .desc_num = 8,
+        .buf_size = 4096,
+        .freq_hz = samplerate_union.glued * OVERSAMPLING,
+        .offset = 0,
+        .clk_src = DAC_DIGI_CLK_SRC_APLL,   // Using APLL as clock source to get a wider frequency range
+        /* Assume the data in buffer is 'A B C D E F'
+         * DAC_CHANNEL_MODE_SIMUL:
+         *      - channel 0: A B C D E F
+         *      - channel 1: A B C D E F
+         * DAC_CHANNEL_MODE_ALTER:
+         *      - channel 0: A C E
+         *      - channel 1: B D F
+         */
+        .chan_mode = (dac_continuous_channel_mode_t)(DAC_CHANNEL_MODE_ALTER & (channels_union.glued == 2)),
+        // .chan_mode = DAC_CHANNEL_MODE_SIMUL,
+    };
+    ESP_ERROR_CHECK(dac_continuous_new_channels(&cont_cfg , &dac_handle));
+
+// #if CONFIG_EXAMPLE_DAC_WRITE_ASYNC
+//     /* Create a queue to transport the interrupt event data */
+//     QueueHandle_t que = xQueueCreate(10 , sizeof(dac_event_data_t));
+//     assert(que);
+//     dac_event_callbacks_t cbs = {
+//         .on_convert_done = dac_on_convert_done_callback,
+//         .on_stop = NULL,
+//     };
+//     /* Must register the callback if using asynchronous writing */
+//     ESP_ERROR_CHECK(dac_continuous_register_event_callback(dac_handle , &cbs , que));
+// #endif
+    /* Enable the continuous channels */
+    ESP_ERROR_CHECK(dac_continuous_enable(dac_handle));
+    ESP_LOGI(TAG , "DAC initialized success, DAC DMA is ready");
 
     // skip the header...
     fseek(fh , 44 , SEEK_SET);
@@ -524,13 +584,17 @@ IRAM_ATTR esp_err_t play_wav(char* fp , dac_continuous_handle_t dac) {
         // for (int i = 0; i < bytes_read; i++) {
         //     // ESP_LOGI(TAG , "bytes: %02x" , buf[i]);
         // }
-        dac_output_with_dither(buf , dac , bytes_read);
+        dac_output_with_dither(buf , dac_handle , bytes_read);
         // dac_continuous_write(dac , (uint8_t*)buf , bytes_read , NULL , 100);
 
 
     }
 
   //   i2s_channel_disable(tx_handle);
+    ESP_LOGI(TAG , "done! cleaning");
+
+    dac_continuous_disable(dac_handle);
+    dac_continuous_del_channels(dac_handle);
     free(buf);
     fclose(fh);
     return ESP_OK;
@@ -581,72 +645,6 @@ extern "C" void app_main(void) {
         .configuration_descriptor = msc_fs_configuration_desc,
 #endif // TUD_OPT_HIGH_SPEED
     };
-    // ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
-    // ESP_LOGI(TAG , "USB MSC initialization DONE");
-
-    // esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
-    /* Prompt to be printed before each line.
-     * This can be customized, made dynamic, etc.
-     */
-    // repl_config.prompt = PROMPT_STR ">";
-    // repl_config.max_cmdline_length = 64;
-    // Init console based on menuconfig settings
-// #if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
-//     esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
-//     ESP_ERROR_CHECK(esp_console_new_repl_uart(&hw_config , &repl_config , &repl));
-
-//     // USJ console can be set only on esp32p4, having separate USB PHYs for USB_OTG and USJ
-// #elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG) && defined(CONFIG_IDF_TARGET_ESP32P4)
-//     esp_console_dev_usb_serial_jtag_config_t hw_config = ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
-//     ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&hw_config , &repl_config , &repl));
-
-// #else
-// #error Unsupported console type
-// #endif
-
-    // for (int count = 0; count < sizeof(cmds) / sizeof(esp_console_cmd_t); count++) {
-        // ESP_ERROR_CHECK(esp_console_cmd_register(&cmds[count]));
-    // }
-
-    // ESP_ERROR_CHECK(esp_console_start_repl(repl));
-
-
-
-    dac_continuous_handle_t dac_handle;
-    dac_continuous_config_t cont_cfg = {
-        .chan_mask = DAC_CHANNEL_MASK_ALL,
-        .desc_num = 8,
-        .buf_size = 4096,
-        .freq_hz = AUDIO_SAMPLE_RATE * OVERSAMPLING,
-        .offset = 0,
-        .clk_src = DAC_DIGI_CLK_SRC_APLL,   // Using APLL as clock source to get a wider frequency range
-        /* Assume the data in buffer is 'A B C D E F'
-         * DAC_CHANNEL_MODE_SIMUL:
-         *      - channel 0: A B C D E F
-         *      - channel 1: A B C D E F
-         * DAC_CHANNEL_MODE_ALTER:
-         *      - channel 0: A C E
-         *      - channel 1: B D F
-         */
-        .chan_mode = DAC_CHANNEL_MODE_ALTER,
-        // .chan_mode = DAC_CHANNEL_MODE_SIMUL,
-    };
-    /* Allocate continuous channels */
-    ESP_ERROR_CHECK(dac_continuous_new_channels(&cont_cfg , &dac_handle));
-// #if CONFIG_EXAMPLE_DAC_WRITE_ASYNC
-//     /* Create a queue to transport the interrupt event data */
-//     QueueHandle_t que = xQueueCreate(10 , sizeof(dac_event_data_t));
-//     assert(que);
-//     dac_event_callbacks_t cbs = {
-//         .on_convert_done = dac_on_convert_done_callback,
-//         .on_stop = NULL,
-//     };
-//     /* Must register the callback if using asynchronous writing */
-//     ESP_ERROR_CHECK(dac_continuous_register_event_callback(dac_handle , &cbs , que));
-// #endif
-    /* Enable the continuous channels */
-    ESP_ERROR_CHECK(dac_continuous_enable(dac_handle));
-    ESP_LOGI(TAG , "DAC initialized success, DAC DMA is ready");
 
 
     gpio_set_direction(GPIO_NUM_0 , GPIO_MODE_INPUT);
@@ -671,7 +669,7 @@ extern "C" void app_main(void) {
             timeout++;
         } else {
             if (timeout) {
-                play_wav(full_name , dac_handle);
+                play_wav(full_name);
             }
             timeout = 0;
         }
