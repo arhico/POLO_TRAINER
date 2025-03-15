@@ -81,7 +81,7 @@ static tusb_desc_device_t descriptor_config = {
 
 static uint8_t const msc_fs_configuration_desc[] = {
     // Config number, interface count, string index, total length, attribute, power in mA
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 500),
 
     // Interface number, string index, EP Out & EP In address, EP size
     TUD_MSC_DESCRIPTOR(ITF_NUM_MSC, 0, EDPT_MSC_OUT, EDPT_MSC_IN, 64),
@@ -530,7 +530,7 @@ esp_err_t play_wav(char* fp , dac_continuous_handle_t dac) {
 
   //   i2s_channel_disable(tx_handle);
     free(buf);
-
+    fclose(fh);
     return ESP_OK;
 }
 
@@ -645,6 +645,47 @@ void app_main(void) {
     ESP_ERROR_CHECK(dac_continuous_enable(dac_handle));
     ESP_LOGI(TAG , "DAC initialized success, DAC DMA is ready");
 
-    play_wav("/data/ZGD_Clap_124.wav" , dac_handle);
+
+    gpio_set_direction(GPIO_NUM_0 , GPIO_MODE_INPUT);
+    gpio_set_pull_mode(GPIO_NUM_0 , GPIO_PULLUP_ONLY);
+
+
+    int timeout = 0;
+#define TIMEOUT 20
+    while (1) {
+        if (timeout >= TIMEOUT) {
+            esp_err_t err = (tinyusb_driver_install(&tusb_cfg));
+            if (err != ESP_OK) {
+                tinyusb_driver_uninstall();
+            }
+            timeout = 0;
+            while (!gpio_get_level(GPIO_NUM_0)) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+            }
+
+        }
+        if (!gpio_get_level(GPIO_NUM_0)) {
+            timeout++;
+        } else {
+            if (timeout) {
+                play_wav("/data/ZGD_Clap_124.wav" , dac_handle);
+            }
+            timeout = 0;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 }
