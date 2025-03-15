@@ -169,7 +169,10 @@ static char const* string_desc_arr[] = {
 // };
 
 // mount the partition and show all the files in BASE_PATH
-static void _mount(void) {
+
+char name[33];
+static void _mount_and_find_1_wav() {
+    static bool name_obtained = false;
     ESP_LOGI(TAG , "Mount storage...");
     ESP_ERROR_CHECK(tinyusb_msc_storage_mount(BASE_PATH));
 
@@ -187,9 +190,38 @@ static void _mount(void) {
         }
         return;
     }
-    //While the next entry is not readable we will print directory files
+
+    char ext_buf[4] = {0};
+        //While the next entry is not readable we will print directory files
     while ((d = readdir(dh)) != NULL) {
-        printf("%s\n" , d->d_name);
+        printf("%s, %d\n" , d->d_name , (int)d->d_type);
+
+        if (!name_obtained) {
+            for (int i = 0; ; i++) {
+                if (d->d_name[i] == '\0') {
+                    ext_buf[3] = d->d_name[i - 1];
+                    ext_buf[2] = d->d_name[i - 2];
+                    ext_buf[1] = d->d_name[i - 3];
+                    ext_buf[0] = d->d_name[i - 4];
+                    if (ext_buf[0] == '.' &&
+                        (ext_buf[1] == 'w' || ext_buf[1] == 'W') &&
+                        (ext_buf[2] == 'a' || ext_buf[2] == 'A') &&
+                        (ext_buf[3] == 'v' || ext_buf[3] == 'V')) {
+                        name_obtained = true;
+                        int ext_idx = i - 4;
+                        for (size_t k = 0; k < 32; k++) {
+                            if (k == ext_idx) break;
+                            name[k] = d->d_name[k];
+                        }
+
+                        // snprintf(name , 32 , "%s" , d->d_name);
+                        ESP_LOGW(TAG , "name obtained: %s" , name);
+                    }
+
+                    break;
+                }
+            }
+        }
     }
     return;
 }
@@ -531,7 +563,7 @@ void app_main(void) {
 #endif  // CONFIG_EXAMPLE_STORAGE_MEDIA_SPIFLASH
 
     //mounted in the app by default
-    _mount();
+    _mount_and_find_1_wav();
 
     ESP_LOGI(TAG , "USB MSC initialization");
     const tinyusb_config_t tusb_cfg = {
