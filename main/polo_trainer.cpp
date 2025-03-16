@@ -464,8 +464,8 @@ IRAM_ATTR static esp_err_t dac_output_with_dither(float gain , uint8_t* buf , ui
     for (int i = 0; i < len; i += byteskip_div) {
         size_t cur_sample = i / byteskip_div;
 
-        if (byteskip_div == 1) {
-            buf_8_bit_msb[cur_sample] = (int8_t)buf[i];
+        if (byteskip_div == 1) { // 8 bits is only format with unsigned data
+            buf_8_bit_msb[cur_sample] = (int8_t)(buf[i] - 128);
             buf_8_bit_lsb[cur_sample] = 0;
 
 
@@ -517,7 +517,7 @@ IRAM_ATTR static esp_err_t dac_output_with_dither(float gain , uint8_t* buf , ui
 
 // uint32_t AUDIO_SAMPLE_RATE = 44100;
 
-#define AUDIO_BUFFER 2048
+#define AUDIO_BUFFER 512
 
 IRAM_ATTR esp_err_t play_wav(char* fp) {
 
