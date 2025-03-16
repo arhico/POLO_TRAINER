@@ -29,7 +29,10 @@
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
 #endif // CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_INTERNAL_IO
 #endif
+#include "math.h"
 
+
+float normalizing_coeff = -1.0;
 /*
  * We warn if a secondary serial console is enabled. A secondary serial console is always output-only and
  * hence not very useful for interactive console applications. If you encounter this warning, consider disabling
@@ -431,64 +434,60 @@ clean:
 // const uint32_t cpu_ticks_per_period = (uint32_t)(aud_sample_len_ns / nanosec_per_cpu_tick);
 const uint32_t OVERSAMPLING = 4;
 
-IRAM_ATTR static esp_err_t dac_output_with_dither(uint8_t* buf , dac_continuous_handle_t dac_contin , size_t len) {
+IRAM_ATTR static esp_err_t dac_output_with_dither(float gain , uint8_t* buf , dac_continuous_handle_t dac_contin , size_t len) {
     // size_t bytes_written = 0;
 
         // uint16_t value_16_bit = 0;
         // uint32_t cpu_tick_count = portGET_RUN_TIME_COUNTER_VALUE();
 
     size_t samples_count = len / 2;
-    uint8_t buf_8_bit_msb[samples_count];
-    uint8_t buf_8_bit_lsb[samples_count];
+    int8_t buf_8_bit_msb[samples_count];
+    int8_t buf_8_bit_lsb[samples_count];
     const int32_t dither_amplitude = (20);
-    uint8_t buf_8_bit_oversampled[samples_count * OVERSAMPLING];
+    int8_t buf_8_bit_oversampled[samples_count * OVERSAMPLING];
     // const int truncate_coeff = (128 / OVERSAMPLING);
     for (int i = 0; i < len; i += 2) {
         size_t cur_sample = i / 2;
-        buf_8_bit_msb[cur_sample] = (int8_t)buf[i + 1] + 128;
-        buf_8_bit_lsb[cur_sample] = (int8_t)buf[i] + 128;
+
+        buf_8_bit_msb[cur_sample] = (int8_t)buf[i + 1];
+        buf_8_bit_lsb[cur_sample] = (int8_t)buf[i];
+
+        // TODO separate by bits
+        float word = ((buf_8_bit_msb[cur_sample] << 8) + (buf_8_bit_lsb[cur_sample])) / (float)INT16_MAX;
+
+        word *= gain;
+
+        // union processed_union {
+        //     int16_t integ_16;
+        //     int8_t integ_8_msb;
+        //     int8_t integ_8_lsb;
+        // } processed;
+        int32_t ooouut = (int16_t)round(word * INT16_MAX);
+
+        if (ooouut > INT16_MAX) ooouut = INT16_MAX;
+        if (ooouut < INT16_MIN) ooouut = INT16_MIN;
+
+        buf_8_bit_msb[cur_sample] = ooouut >> 8;
+        buf_8_bit_lsb[cur_sample] = ooouut & 0xFF;
+
+        // buf_8_bit_msb[cur_sample] = (int8_t)buf[i + 1] + 128;
+        // buf_8_bit_lsb[cur_sample] = (int8_t)buf[i] + 128;
+
         for (size_t k = 0; k < OVERSAMPLING; k++) {
             int32_t pwm_ovsmpl_val = 0;
             int32_t dither = rand() % dither_amplitude - dither_amplitude / 2;
-            if (buf_8_bit_lsb[cur_sample] + dither > 128) {
+            if (buf_8_bit_lsb[cur_sample] + dither >= 127) {
                 pwm_ovsmpl_val = 1;
             }
-            if (buf_8_bit_lsb[cur_sample] + dither < 0) {
+            if (buf_8_bit_lsb[cur_sample] + dither <= -128) {
                 pwm_ovsmpl_val = -1;
             }
 
-            // if (buf_8_bit_lsb[cur_sample] > 128) {
-            //     pwm_ovsmpl_val = k * truncate_coeff > (buf_8_bit_lsb[cur_sample] - 128) ? 1 : 0;
-            // } else if (buf_8_bit_lsb[cur_sample] < 128) {
-            //     pwm_ovsmpl_val = k * truncate_coeff > buf_8_bit_lsb[cur_sample] ? 0 : -1;
-            // }
             buf_8_bit_oversampled[cur_sample * OVERSAMPLING + k] = buf_8_bit_msb[cur_sample] + pwm_ovsmpl_val;
         }
     }
+    dac_continuous_write(dac_contin , (uint8_t*)buf_8_bit_oversampled , samples_count * OVERSAMPLING , NULL , -1);
 
-    //     uint8_t buf_8_bit_msb[len / 2];
-    // for (int i = 0; i < len; i += 2) {
-    //     buf_8_bit_msb[i / 2] = (int8_t)buf[i + 1] + 128;
-    // }
-
-
-    // for (int i = 0; i < len; i += 2) {
-    //     // value_16_bit = (((int8_t)buf[i] + 128) << 8) | ((int8_t)buf[i + 1] + 128);
-    //     // value_16_bit = (buf[i] << 8);
-    //     // printf("%u\n" , value_16_bit);
-    //     // printf("%d\t" , (int8_t)buf[i]);
-    //     // printf("%d\t" , (int8_t)buf[i + 1]);
-    //     // printf("\n");
-    //     dac_oneshot_output_voltage(dac_a , (int8_t)buf[i + 1] + 128);
-    //     esp_rom_delay_us(sample_len_us - lag_offset_us);
-    //     // while ((portGET_RUN_TIME_COUNTER_VALUE() - cpu_tick_count) < cpu_ticks_per_period + lag_offset_us * 1000) {}
-    // }
-    // size_t loaded = 0;
-    // dac_write_data_synchronously(dac_contin , (uint8_t*)buf_8_bit_msb , len / 2);
-    // dac_continuous_write(dac_contin , buf_8_bit_msb , len / 2 , NULL , 1);
-    dac_continuous_write(dac_contin , buf_8_bit_oversampled , samples_count * OVERSAMPLING , NULL , -1);
-
-    // bsp_extra_i2s_write(buf , len , &bytes_written , 0);
     return ESP_OK;
 }
 
@@ -523,10 +522,25 @@ IRAM_ATTR esp_err_t play_wav(char* fp) {
 
     fseek(fh , 24 , SEEK_SET);
     fread(samplerate_union.bytes , sizeof(uint8_t) , 4 , fh);
+
     fseek(fh , 34 , SEEK_SET);
     fread(bitdepth_union.bytes , sizeof(uint8_t) , 2 , fh);
+
     ESP_LOGI(TAG , "wave header samplerate: %lu, bitdepth: %u, channels %u" , samplerate_union.glued , bitdepth_union.glued , channels_union.glued);
 
+    // after the header
+    fseek(fh , 44 , SEEK_SET);
+
+    if (normalizing_coeff < 0) {
+        ESP_LOGW(TAG , "CALCULATING GAIN");
+        // while (bytes_read > 0) {
+        //     bytes_read = fread(buf , sizeof(uint8_t) , AUDIO_BUFFER , fh);
+        // }
+        // calc
+        normalizing_coeff = 0.1;
+        fclose(fh);
+        return play_wav(fp);
+    }
 
     dac_continuous_handle_t dac_handle;
     dac_continuous_config_t cont_cfg = {
@@ -534,7 +548,7 @@ IRAM_ATTR esp_err_t play_wav(char* fp) {
         .desc_num = 8,
         .buf_size = 4096,
         .freq_hz = samplerate_union.glued * OVERSAMPLING,
-        .offset = 0,
+        .offset = -128,
         .clk_src = DAC_DIGI_CLK_SRC_APLL,   // Using APLL as clock source to get a wider frequency range
         /* Assume the data in buffer is 'A B C D E F'
          * DAC_CHANNEL_MODE_SIMUL:
@@ -564,8 +578,6 @@ IRAM_ATTR esp_err_t play_wav(char* fp) {
     ESP_ERROR_CHECK(dac_continuous_enable(dac_handle));
     ESP_LOGI(TAG , "DAC initialized success, DAC DMA is ready");
 
-    // skip the header...
-    fseek(fh , 44 , SEEK_SET);
 
     // create a writer buffer
     uint8_t* buf = (uint8_t*)calloc(AUDIO_BUFFER , sizeof(uint8_t));
@@ -577,18 +589,17 @@ IRAM_ATTR esp_err_t play_wav(char* fp) {
   //   i2s_channel_enable(tx_handle);
 //   ESP_LOGV(TAG , "Bytes read: %d" , bytes_read);
 
+
+
+    normalizing_coeff = (float)rand() / UINT32_MAX;
+    ESP_LOGI(TAG , "normalizing_coeff: % f" , normalizing_coeff);
+
+
     while (bytes_read > 0) {
-      // write the buffer to the i2s
-      // i2s_channel_write(tx_handle, buf, bytes_read * sizeof(int16_t), &bytes_written, portMAX_DELAY);
         bytes_read = fread(buf , sizeof(uint8_t) , AUDIO_BUFFER , fh);
-        // for (int i = 0; i < bytes_read; i++) {
-        //     // ESP_LOGI(TAG , "bytes: %02x" , buf[i]);
-        // }
-        dac_output_with_dither(buf , dac_handle , bytes_read);
-        // dac_continuous_write(dac , (uint8_t*)buf , bytes_read , NULL , 100);
-
-
+        dac_output_with_dither(normalizing_coeff , buf , dac_handle , bytes_read);
     }
+
 
   //   i2s_channel_disable(tx_handle);
     ESP_LOGI(TAG , "done! cleaning");
