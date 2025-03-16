@@ -434,41 +434,51 @@ clean:
 // const uint32_t cpu_ticks_per_period = (uint32_t)(aud_sample_len_ns / nanosec_per_cpu_tick);
 const uint32_t OVERSAMPLING = 4;
 
-IRAM_ATTR static esp_err_t dac_output_with_dither(float gain , uint8_t* buf , dac_continuous_handle_t dac_contin , size_t len) {
+IRAM_ATTR static esp_err_t dac_output_with_dither(float gain , uint8_t* buf , uint16_t bitwidth , dac_continuous_handle_t dac_contin , size_t len) {
     // size_t bytes_written = 0;
 
         // uint16_t value_16_bit = 0;
         // uint32_t cpu_tick_count = portGET_RUN_TIME_COUNTER_VALUE();
 
-    size_t samples_count = len / 2;
+    const int byteskip_div = bitwidth / 8;
+    size_t samples_count = len / byteskip_div;
     int8_t buf_8_bit_msb[samples_count];
     int8_t buf_8_bit_lsb[samples_count];
     const int32_t dither_amplitude = (20);
     int8_t buf_8_bit_oversampled[samples_count * OVERSAMPLING];
     // const int truncate_coeff = (128 / OVERSAMPLING);
-    for (int i = 0; i < len; i += 2) {
-        size_t cur_sample = i / 2;
+    for (int i = 0; i < len; i += byteskip_div) {
+        size_t cur_sample = i / byteskip_div;
 
-        buf_8_bit_msb[cur_sample] = (int8_t)buf[i + 1];
-        buf_8_bit_lsb[cur_sample] = (int8_t)buf[i];
+        if (byteskip_div == 1) {
+            buf_8_bit_msb[cur_sample] = (int8_t)buf[i];
+            buf_8_bit_lsb[cur_sample] = 0;
 
+
+        } else {
+            buf_8_bit_msb[cur_sample] = (int8_t)buf[i + 1];
+            buf_8_bit_lsb[cur_sample] = (int8_t)buf[i];
+        }
         // TODO separate by bits
-        float word = ((buf_8_bit_msb[cur_sample] << 8) + (buf_8_bit_lsb[cur_sample])) / (float)INT16_MAX;
 
-        word *= gain;
+        if (gain != 1.0) {
+            float word = ((buf_8_bit_msb[cur_sample] << 8) + (buf_8_bit_lsb[cur_sample])) / (float)INT16_MAX;
 
-        // union processed_union {
-        //     int16_t integ_16;
-        //     int8_t integ_8_msb;
-        //     int8_t integ_8_lsb;
-        // } processed;
-        int32_t ooouut = (int16_t)round(word * INT16_MAX);
+            word *= gain;
 
-        if (ooouut > INT16_MAX) ooouut = INT16_MAX;
-        if (ooouut < INT16_MIN) ooouut = INT16_MIN;
+            // union processed_union {
+            //     int16_t integ_16;
+            //     int8_t integ_8_msb;
+            //     int8_t integ_8_lsb;
+            // } processed;
+            int32_t ooouut = (int16_t)round(word * INT16_MAX);
 
-        buf_8_bit_msb[cur_sample] = ooouut >> 8;
-        buf_8_bit_lsb[cur_sample] = ooouut & 0xFF;
+            if (ooouut > INT16_MAX) ooouut = INT16_MAX;
+            if (ooouut < INT16_MIN) ooouut = INT16_MIN;
+
+            buf_8_bit_msb[cur_sample] = ooouut >> 8;
+            buf_8_bit_lsb[cur_sample] = ooouut & 0xFF;
+        }
 
         // buf_8_bit_msb[cur_sample] = (int8_t)buf[i + 1] + 128;
         // buf_8_bit_lsb[cur_sample] = (int8_t)buf[i] + 128;
@@ -532,12 +542,12 @@ IRAM_ATTR esp_err_t play_wav(char* fp) {
     fseek(fh , 44 , SEEK_SET);
 
     if (normalizing_coeff < 0) {
-        ESP_LOGW(TAG , "CALCULATING GAIN");
+        ESP_LOGW(TAG , "CALCULATING GAIN (not yet really)"); // TODO
         // while (bytes_read > 0) {
         //     bytes_read = fread(buf , sizeof(uint8_t) , AUDIO_BUFFER , fh);
         // }
         // calc
-        normalizing_coeff = 0.1;
+        normalizing_coeff = 1.0;
         fclose(fh);
         return play_wav(fp);
     }
@@ -591,13 +601,14 @@ IRAM_ATTR esp_err_t play_wav(char* fp) {
 
 
 
-    normalizing_coeff = (float)rand() / UINT32_MAX;
+    // normalizing_coeff = (float)rand() / UINT32_MAX;
     ESP_LOGI(TAG , "normalizing_coeff: % f" , normalizing_coeff);
 
+    // uint16_t bitwidth = ;
 
     while (bytes_read > 0) {
         bytes_read = fread(buf , sizeof(uint8_t) , AUDIO_BUFFER , fh);
-        dac_output_with_dither(normalizing_coeff , buf , dac_handle , bytes_read);
+        dac_output_with_dither(normalizing_coeff , buf , bitdepth_union.glued , dac_handle , bytes_read);
     }
 
 
@@ -668,7 +679,9 @@ extern "C" void app_main(void) {
         if (timeout >= TIMEOUT) {
             esp_err_t err = (tinyusb_driver_install(&tusb_cfg));
             if (err != ESP_OK) {
+                normalizing_coeff = 0;
                 tinyusb_driver_uninstall();
+                esp_restart();
             }
             timeout = 0;
             while (!gpio_get_level(GPIO_NUM_0)) {
