@@ -33,6 +33,9 @@
 #include "driver/touch_sensor.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "esp_sleep.h"
+#include "driver/rtc_io.h"
+
 
 static QueueHandle_t que_touch = NULL;
 typedef struct touch_msg {
@@ -42,7 +45,7 @@ typedef struct touch_msg {
     uint32_t pad_val;
 } touch_event_t;
 
-float normalizing_coeff = -1.0;
+RTC_DATA_ATTR static float normalizing_coeff = -1.0;
 /*
  * We warn if a secondary serial console is enabled. A secondary serial console is always output-only and
  * hence not very useful for interactive console applications. If you encounter this warning, consider disabling
@@ -186,7 +189,7 @@ static char const* string_desc_arr[] = {
 char name[33];
 char full_name[512];
 
-IRAM_ATTR static void _mount_and_find_1_wav() {
+IRAM_ATTR static esp_err_t _mount_and_find_1_wav() {
     static bool name_obtained = false;
     ESP_LOGI(TAG , "Mount storage...");
     ESP_ERROR_CHECK(tinyusb_msc_storage_mount(BASE_PATH));
@@ -203,7 +206,7 @@ IRAM_ATTR static void _mount_and_find_1_wav() {
             //If the directory is not readable then throw error and exit
             ESP_LOGE(TAG , "Unable to read directory %s" , BASE_PATH);
         }
-        return;
+        return -1;
     }
 
     char ext_buf[4] = {0};
@@ -230,6 +233,7 @@ IRAM_ATTR static void _mount_and_find_1_wav() {
                         }
 
                         sprintf(full_name , "%s/%s" , BASE_PATH , d->d_name);
+
                         ESP_LOGW(TAG , "name obtained: %s\nfullname: %s" , name , full_name);
                     }
 
@@ -238,7 +242,7 @@ IRAM_ATTR static void _mount_and_find_1_wav() {
             }
         }
     }
-    return;
+    return !name_obtained;
 }
 
 // // unmount storage
@@ -663,15 +667,25 @@ static void touchsensor_interrupt_cb(void* arg) {
 }
 
 static void tp_example_set_thresholds(void) {
+    RTC_DATA_ATTR static bool calibrated = false;
+    RTC_DATA_ATTR static uint32_t cal_value;
 
-    uint32_t touch_value;
+    if (calibrated) {
+        ESP_LOGI(TAG , "skipped calibration");
+        touch_pad_set_thresh(TOUCH_1 , cal_value * 0.2);
+
+        // return;
+    } else {
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+
     // for (int i = 0; i < TOUCH_BUTTON_NUM; i++) {
         //read benchmark value
-    touch_pad_read_benchmark(TOUCH_1 , &touch_value);
+        touch_pad_read_benchmark(TOUCH_1 , &cal_value);
     //set interrupt threshold.
-    touch_pad_set_thresh(TOUCH_1 , touch_value * 0.2);
-    ESP_LOGI(TAG , "touch pad [%d] base %"PRIu32", thresh %"PRIu32 , TOUCH_1 , touch_value , (uint32_t)(touch_value * 0.2));
-// }
+        touch_pad_set_thresh(TOUCH_1 , cal_value * 0.2);
+        ESP_LOGW(TAG , "touch %d calib %"PRIu32", thresh %"PRIu32 , TOUCH_1 , cal_value , (uint32_t)(cal_value * 0.2));
+        calibrated = true;
+    }
 }
 
 static void tp_example_read_task(void* pvParameter) {
@@ -679,7 +693,6 @@ static void tp_example_read_task(void* pvParameter) {
     static uint8_t guard_mode_flag = 0;
     /* Wait touch sensor init done */
 
-    vTaskDelay(50 / portTICK_PERIOD_MS);
     tp_example_set_thresholds();
 
     while (1) {
@@ -722,9 +735,12 @@ static void tp_example_read_task(void* pvParameter) {
     }
 }
 
-
+esp_err_t properly_inited = ESP_OK;
 
 extern "C" void app_main(void) {
+
+
+
     ESP_LOGI(TAG , "initializing touch");
     if (que_touch == NULL) {
         que_touch = xQueueCreate(1 , sizeof(touch_event_t));
@@ -744,8 +760,19 @@ extern "C" void app_main(void) {
     touch_pad_set_fsm_mode(TOUCH_FSM_MODE_TIMER);
     touch_pad_fsm_start();
 
+    // vTaskDelay(pdMS_TO_TICKS(1000));
+    tp_example_set_thresholds();
+
+    // uint32_t tres;
+    // touch_pad_sleep_channel_enable(TOUCH_1 , true);
+
+    // touch_pad_get_thresh(TOUCH_1 , &tres);
+
+    // touch_pad_sleep_set_threshold(TOUCH_1 , tres);
+
     // Start a task to show what pads have been touched
-    xTaskCreate(&tp_example_read_task , "touch_pad_read_task" , 4096 , NULL , 5 , NULL);
+    // xTaskCreate(&tp_example_read_task , "touch_pad_read_task" , 4096 , NULL , 5 , NULL);
+
 
 
     // uint32_t touch_value;
@@ -781,64 +808,119 @@ extern "C" void app_main(void) {
 #endif  // CONFIG_EXAMPLE_STORAGE_MEDIA_SPIFLASH
 
     //mounted in the app by default
-    _mount_and_find_1_wav();
+    properly_inited = _mount_and_find_1_wav();
 
-    ESP_LOGI(TAG , "USB MSC initialization");
-    const tinyusb_config_t tusb_cfg = {
-        .device_descriptor = &descriptor_config,
-        .string_descriptor = string_desc_arr,
-        .string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
-        .external_phy = false,
-#if (TUD_OPT_HIGH_SPEED)
-        .fs_configuration_descriptor = msc_fs_configuration_desc,
-        .hs_configuration_descriptor = msc_hs_configuration_desc,
-        .qualifier_descriptor = &device_qualifier,
-#else
-        .configuration_descriptor = msc_fs_configuration_desc,
-#endif // TUD_OPT_HIGH_SPEED
-    };
+    esp_sleep_wakeup_cause_t  cause = esp_sleep_get_wakeup_cause();
+    ESP_LOGW(TAG , "wakeup cause: %d" , cause);
 
-
+    esp_sleep_enable_touchpad_wakeup();
+    esp_sleep_enable_ext0_wakeup(GPIO_NUM_0 , 0);
     gpio_set_direction(GPIO_NUM_0 , GPIO_MODE_INPUT);
     gpio_set_pull_mode(GPIO_NUM_0 , GPIO_PULLUP_ONLY);
+    gpio_sleep_set_direction(GPIO_NUM_0 , GPIO_MODE_INPUT);
+    gpio_sleep_set_pull_mode(GPIO_NUM_0 , GPIO_PULLUP_ONLY);
 
+    rtc_gpio_pullup_en(GPIO_NUM_0);
+    rtc_gpio_pulldown_dis(GPIO_NUM_0);
+    // gpio_deep_sleep_hold_en();
+    // if (gpio_get_level(GPIO_NUM_0) == 0) {
+    //     properly_inited = -1;
+    // }
 
     int timeout = 0;
-#define TIMEOUT 20
-    while (1) {
-        if (timeout >= TIMEOUT) {
-            esp_err_t err = (tinyusb_driver_install(&tusb_cfg));
-            if (err != ESP_OK) {
-                normalizing_coeff = 0;
-                tinyusb_driver_uninstall();
-                esp_restart();
-            }
-            timeout = 0;
-            while (!gpio_get_level(GPIO_NUM_0)) {
-                vTaskDelay(pdMS_TO_TICKS(100));
-            }
 
-        }
-        if (!gpio_get_level(GPIO_NUM_0)) {
-            timeout++;
-        } else {
-            if (timeout) {
-                play_wav(full_name);
-            }
-            timeout = 0;
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
+
+
+
+#define TIMEOUT 20
+
+    if (properly_inited == ESP_OK && cause == ESP_SLEEP_WAKEUP_TOUCHPAD) {
+        // play audio
+        play_wav(full_name);
+
+        // esp_deep_sleep_start();
+    }
+    if (properly_inited != ESP_OK || cause == ESP_SLEEP_WAKEUP_EXT0) {
+       // mount usb to OS
+        ESP_LOGI(TAG , "USB MSC initialization");
+        const tinyusb_config_t tusb_cfg = {
+            .device_descriptor = &descriptor_config,
+            .string_descriptor = string_desc_arr,
+            .string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
+            .external_phy = false,
+    #if (TUD_OPT_HIGH_SPEED)
+            .fs_configuration_descriptor = msc_fs_configuration_desc,
+            .hs_configuration_descriptor = msc_hs_configuration_desc,
+            .qualifier_descriptor = &device_qualifier,
+    #else
+            .configuration_descriptor = msc_fs_configuration_desc,
+    #endif // TUD_OPT_HIGH_SPEED
+        };
+        esp_err_t err = (tinyusb_driver_install(&tusb_cfg));
+        normalizing_coeff = -1;
+        while (gpio_get_level(GPIO_NUM_0) == 0) { vTaskDelay(100); }
+        while (gpio_get_level(GPIO_NUM_0) == 1) { vTaskDelay(100); }
+        tinyusb_driver_uninstall();
+        ESP_LOGW(TAG , "restarting system");
+        vTaskDelay(pdMS_TO_TICKS(50));
+        while (gpio_get_level(GPIO_NUM_0) == 0) { vTaskDelay(100); }
+        esp_restart();
+    // } else {
+
     }
 
+    ESP_LOGW(TAG , "going to deep sleep");
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    esp_deep_sleep_start();
+
+    // }
 
 
 
+    // while (1) {
+    //     // while (tud_connected()) {
+    //     vTaskDelay(100);
+    // }
 
+    // while (1) {
+        // if (timeout >= TIMEOUT) {
+        //     ESP_LOGI(TAG , "USB MSC initialization");
+        //     const tinyusb_config_t tusb_cfg = {
+        //         .device_descriptor = &descriptor_config,
+        //         .string_descriptor = string_desc_arr,
+        //         .string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
+        //         .external_phy = false,
+        // #if (TUD_OPT_HIGH_SPEED)
+        //         .fs_configuration_descriptor = msc_fs_configuration_desc,
+        //         .hs_configuration_descriptor = msc_hs_configuration_desc,
+        //         .qualifier_descriptor = &device_qualifier,
+        // #else
+        //         .configuration_descriptor = msc_fs_configuration_desc,
+        // #endif // TUD_OPT_HIGH_SPEED
+        //     };
+        //     esp_err_t err = (tinyusb_driver_install(&tusb_cfg));
+        //     if (err != ESP_OK) {
+        //         normalizing_coeff = 0;
+        //         tinyusb_driver_uninstall();
+        //         esp_restart();
+        //     }
+        //     timeout = 0;
+        //     while (!gpio_get_level(GPIO_NUM_0)) {
+        //         vTaskDelay(pdMS_TO_TICKS(100));
+        //     }
 
-
-
-
-
+        // }
+        // if (!gpio_get_level(GPIO_NUM_0)) {
+        //     timeout++;
+        // } else {
+        //     if (timeout) {
+        //         play_wav(full_name);
+        //     }
+        //     timeout = 0;
+        // }
+        // vTaskDelay(pdMS_TO_TICKS(100));
+    // }
 
 
 
