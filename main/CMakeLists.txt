@@ -1,11 +1,5 @@
-set(priv_requires fatfs console driver)
+set(COMPONENT_SRCS ./polo_trainer.cpp)
+set(COMPONENT_ADD_INCLUDEDIRS "")
+# set(COMPONENT_EMBED_TXTFILES music-16b-2c-8000hz.mp3 music-16b-2c-22050hz.mp3 music-16b-2c-44100hz.mp3)
 
-if(CONFIG_EXAMPLE_STORAGE_MEDIA_SPIFLASH)
-    list(APPEND priv_requires wear_levelling esp_partition)
-endif()
-
-idf_component_register(
-    SRCS "polo_trainer.cpp"
-    INCLUDE_DIRS .
-    PRIV_REQUIRES "${priv_requires}"
-)
+register_component()
