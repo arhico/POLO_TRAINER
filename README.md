@@ -1,5 +1,5 @@
 # Polo trainer
-![Polo](https://github.com/arhico/POLO_TRAINER/blob/main/main/polo.jpg?raw=true)
+![Polo](https://github.com/arhico/POLO_TRAINER/blob/main/main/polo_s.jpg?raw=true)
 Another device for interacting with pets. Polo is our family friends pet. Hope this device will help him to get more efficient in interactions with humans around.
 
 ## Instruction
