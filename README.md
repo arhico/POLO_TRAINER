@@ -2,6 +2,8 @@
 ![Polo](https://github.com/arhico/POLO_TRAINER/blob/main/main/polo_s.jpg?raw=true)
 Another device for interacting with pets. Polo is our family friends pet. Hope this device will help him to get more efficient in interactions with humans around.
 
+Project compiles on espidf 5.4.0 for esp32s2 target (esp32s2 mini module)
+
 ## Instruction
     1. Plug USB in
     2. Disk with ~3 MB capacity should appear (if not - press '0' button)
