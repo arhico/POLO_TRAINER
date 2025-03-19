@@ -11,9 +11,9 @@ Another device for interacting with pets. Polo is our family friends pet. Hope t
 6. Touch device to play audio track
 
 ## Features status
-✅ File embedding in flash + wear levelling
-✅ Deep sleep
-✅ User runmodes: FAT disk, audio player
-✅ WAV support (any samplerate, any bitdepth)
-🕝 MP3 support
-🕝 Retrigger
+    ✅ File embedding in flash + wear levelling
+    ✅ Deep sleep
+    ✅ User runmodes: FAT disk, audio player
+    ✅ WAV support (any samplerate, any bitdepth)
+    🕝 MP3 support
+    🕝 Retrigger
