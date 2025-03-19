@@ -17,5 +17,5 @@ Project compiles on espidf 5.4.0 for esp32s2 target (esp32s2 mini module)
     ✅ Deep sleep
     ✅ User runmodes: FAT disk, audio player
     ✅ WAV support (any samplerate, any bitdepth)
-    🕝 MP3 support
+    ✅ MP3 support
     🕝 Retrigger

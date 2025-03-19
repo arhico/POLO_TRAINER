@@ -189,7 +189,7 @@ static char const* string_desc_arr[] = {
 char name[33];
 char full_name[512];
 
-IRAM_ATTR static esp_err_t _mount_and_find_1_wav() {
+IRAM_ATTR static esp_err_t _mount_and_find_1_audio() {
     static bool name_obtained = false;
     ESP_LOGI(TAG , "Mount storage...");
     ESP_ERROR_CHECK(tinyusb_msc_storage_mount(BASE_PATH));
@@ -221,10 +221,13 @@ IRAM_ATTR static esp_err_t _mount_and_find_1_wav() {
                     ext_buf[2] = d->d_name[i - 2];
                     ext_buf[1] = d->d_name[i - 3];
                     ext_buf[0] = d->d_name[i - 4];
-                    if (ext_buf[0] == '.' &&
-                        (ext_buf[1] == 'w' || ext_buf[1] == 'W') &&
+                    if (ext_buf[0] == '.' && (
+                        ((ext_buf[1] == 'w' || ext_buf[1] == 'W') &&
                         (ext_buf[2] == 'a' || ext_buf[2] == 'A') &&
-                        (ext_buf[3] == 'v' || ext_buf[3] == 'V')) {
+                            (ext_buf[3] == 'v' || ext_buf[3] == 'V')) ||
+                        ((ext_buf[1] == 'm' || ext_buf[1] == 'M') &&
+                            (ext_buf[2] == 'p' || ext_buf[2] == 'P') &&
+                            (ext_buf[3] == '3' || ext_buf[3] == '3')))) {
                         name_obtained = true;
                         int ext_idx = i - 4;
                         for (size_t k = 0; k < 32; k++) {
@@ -467,8 +470,6 @@ IRAM_ATTR static esp_err_t dac_output_with_dither(float gain , uint8_t* buf , ui
         if (byteskip_div == 1) { // 8 bits is only format with unsigned data
             buf_8_bit_msb[cur_sample] = (int8_t)(buf[i] - 128);
             buf_8_bit_lsb[cur_sample] = 0;
-
-
         } else {
             buf_8_bit_msb[cur_sample] = (int8_t)buf[i + 1];
             buf_8_bit_lsb[cur_sample] = (int8_t)buf[i];
@@ -518,6 +519,17 @@ IRAM_ATTR static esp_err_t dac_output_with_dither(float gain , uint8_t* buf , ui
 // uint32_t AUDIO_SAMPLE_RATE = 44100;
 
 #define AUDIO_BUFFER 512
+
+#include <string.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "audio_element.h"
+#include "audio_pipeline.h"
+#include "audio_event_iface.h"
+#include "audio_mem.h"
+#include "audio_common.h"
+#include "pwm_stream.h"
+#include "mp3_decoder.h"
 
 IRAM_ATTR esp_err_t play_wav(char* fp) {
 
@@ -610,23 +622,14 @@ IRAM_ATTR esp_err_t play_wav(char* fp) {
 
     bytes_read = fread(buf , sizeof(uint8_t) , AUDIO_BUFFER , fh);
 
-  //   i2s_channel_enable(tx_handle);
-//   ESP_LOGV(TAG , "Bytes read: %d" , bytes_read);
-
-
-
     // normalizing_coeff = (float)rand() / UINT32_MAX;
     ESP_LOGI(TAG , "normalizing_coeff: % f" , normalizing_coeff);
-
-    // uint16_t bitwidth = ;
 
     while (bytes_read > 0) {
         bytes_read = fread(buf , sizeof(uint8_t) , AUDIO_BUFFER , fh);
         dac_output_with_dither(normalizing_coeff , buf , bitdepth_union.glued , dac_handle , bytes_read);
     }
 
-
-  //   i2s_channel_disable(tx_handle);
     ESP_LOGI(TAG , "done! cleaning");
 
     dac_continuous_disable(dac_handle);
@@ -636,12 +639,132 @@ IRAM_ATTR esp_err_t play_wav(char* fp) {
     return ESP_OK;
 }
 
+
+
+
+IRAM_ATTR int mp3_music_read_cb(audio_element_handle_t el , char* buf , int len , TickType_t wait_time , void* ctx) {
+    // int read_size = file_marker.end - file_marker.start - file_marker.pos;
+    FILE* fh = (FILE*)ctx;
+    size_t read_size = fread(buf , sizeof(char) , len , fh);
+    ESP_LOGD("read_cb" , "read %u" , read_size);
+    if (read_size == 0) {
+        return AEL_IO_DONE;
+    }
+    return read_size;
+}
+
+#define CONFIG_PWM_LEFT_OUTPUT_GPIO_NUM GPIO_NUM_17
+#define CONFIG_PWM_RIGHT_OUTPUT_GPIO_NUM GPIO_NUM_18
+
+IRAM_ATTR int play_mp3(char* fp) {
+
+    ESP_LOGI("play_mp3" , "playing: %s" , fp);
+    FILE* fh = fopen(fp , "rb");
+    if (fh == NULL) {
+        ESP_LOGE("play_mp3" , "Failed to open file");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGI("play_mp3" , "creating audio pipeline");
+    audio_pipeline_handle_t pipeline;
+    audio_element_handle_t mp3_decoder , output_stream_writer;
+    audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
+    // pipeline_cfg.rb_size = 2048;
+    pipeline = audio_pipeline_init(&pipeline_cfg);
+    mem_assert(pipeline);
+
+    ESP_LOGI("play_mp3" , "create output stream to write to pwm");
+    pwm_stream_cfg_t pwm_cfg = PWM_STREAM_CFG_DEFAULT();
+    pwm_cfg.pwm_config.gpio_num_left = CONFIG_PWM_LEFT_OUTPUT_GPIO_NUM;
+    pwm_cfg.pwm_config.gpio_num_right = CONFIG_PWM_RIGHT_OUTPUT_GPIO_NUM;
+    output_stream_writer = pwm_stream_init(&pwm_cfg);
+
+    ESP_LOGI("play_mp3" , "create mp3 decoder");
+    mp3_decoder_cfg_t mp3_cfg = DEFAULT_MP3_DECODER_CONFIG();
+    mp3_cfg.stack_in_ext = false;
+    mp3_decoder = mp3_decoder_init(&mp3_cfg);
+    audio_element_set_read_cb(mp3_decoder , mp3_music_read_cb , (void*)fh);
+
+    ESP_LOGI("play_mp3" , "registering all elements to audio pipeline");
+    audio_pipeline_register(pipeline , mp3_decoder , "mp3");
+    audio_pipeline_register(pipeline , output_stream_writer , "output");
+
+    ESP_LOGI("play_mp3" , "link together [mp3_music_read_cb]-->mp3_decoder");
+    const char* link_tag[2] = {"mp3", "output"};
+    audio_pipeline_link(pipeline , &link_tag[0] , 2);
+
+    ESP_LOGI("play_mp3" , "set up  event listener");
+    audio_event_iface_cfg_t evt_cfg = AUDIO_EVENT_IFACE_DEFAULT_CFG();
+    audio_event_iface_handle_t evt = audio_event_iface_init(&evt_cfg);
+
+    ESP_LOGI("play_mp3" , "listening event from all elements of pipeline");
+    audio_pipeline_set_listener(pipeline , evt);
+
+    ESP_ERROR_CHECK(audio_pipeline_run(pipeline));
+
+
+    while (1) {
+        audio_event_iface_msg_t msg;
+        esp_err_t ret = audio_event_iface_listen(evt , &msg , portMAX_DELAY);
+        ESP_LOGD("play_mp3" , "event: %d" , msg.cmd);
+        if (ret != ESP_OK) {
+            continue;
+        }
+
+        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void*)mp3_decoder
+            && msg.cmd == AEL_MSG_CMD_REPORT_MUSIC_INFO) {
+            audio_element_info_t music_info = {0};
+            audio_element_getinfo(mp3_decoder , &music_info);
+            ESP_LOGI("play_mp3" , "music info from mp3 decoder, sample_rates=%d, bits=%d, ch=%d, kbps=%d, duration=%d" , music_info.sample_rates , music_info.bits , music_info.channels , music_info.bps / 1024 , music_info.duration);
+            audio_element_set_music_info(output_stream_writer , music_info.sample_rates , music_info.channels , music_info.bits);
+            pwm_stream_set_clk(output_stream_writer , music_info.sample_rates , music_info.bits , music_info.channels);
+            continue;
+        }
+
+        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void*)output_stream_writer
+            && msg.cmd == AEL_MSG_CMD_REPORT_STATUS
+            && (((int)msg.data == AEL_STATUS_STATE_STOPPED) || ((int)msg.data == AEL_STATUS_STATE_FINISHED))) {
+
+            ESP_LOGI("play_mp3" , "stop event received");
+            break;
+        }
+
+        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void*)mp3_decoder
+            && msg.cmd == AEL_MSG_CMD_REPORT_POSITION) {
+            continue;
+        }
+    }
+
+    ESP_LOGI(TAG , "stop audio_pipeline");
+    audio_pipeline_stop(pipeline);
+    audio_pipeline_wait_for_stop(pipeline);
+    audio_pipeline_terminate(pipeline);
+    audio_pipeline_unregister(pipeline , mp3_decoder);
+    audio_pipeline_unregister(pipeline , output_stream_writer);
+
+    /* Terminate the pipeline before removing the listener */
+    audio_pipeline_remove_listener(pipeline);
+
+    /* Make sure audio_pipeline_remove_listener is called before destroying event_iface */
+    audio_event_iface_destroy(evt);
+
+    /* Release all resources */
+    audio_pipeline_deinit(pipeline);
+    audio_element_deinit(output_stream_writer);
+    audio_element_deinit(mp3_decoder);
+
+    // free(buf);
+    fclose(fh);
+    fh = NULL;
+    return ESP_OK;
+}
+
 #define TOUCH_1 TOUCH_PAD_NUM2
 
 static void touchsensor_filter_set(touch_filter_mode_t mode) {
-    /* Filter function */
+    /* filter function */
     touch_filter_config_t filter_info = {
-        .mode = mode,           // Test jitter and filter 1/4.
+        .mode = mode,           // test jitter and filter 1/4.
         .debounce_cnt = 1,      // 1 time count.
         .noise_thr = 0,         // 50%
         .jitter_step = 4,       // use for jitter mode.
@@ -666,7 +789,9 @@ static void touchsensor_interrupt_cb(void* arg) {
     }
 }
 
-static void tp_POLO_TRAINER_set_thresholds(void) {
+
+static void touch_set_thresholds(void) {
+
     RTC_DATA_ATTR static bool calibrated = false;
     RTC_DATA_ATTR static uint32_t cal_value;
 
@@ -688,12 +813,12 @@ static void tp_POLO_TRAINER_set_thresholds(void) {
     }
 }
 
-static void tp_POLO_TRAINER_read_task(void* pvParameter) {
+static void touch_read_task(void* pvParameter) {
     touch_event_t evt;
     static uint8_t guard_mode_flag = 0;
     /* Wait touch sensor init done */
 
-    tp_POLO_TRAINER_set_thresholds();
+    touch_set_thresholds();
 
     while (1) {
         int ret = xQueueReceive(que_touch , &evt , (TickType_t)portMAX_DELAY);
@@ -735,51 +860,29 @@ static void tp_POLO_TRAINER_read_task(void* pvParameter) {
     }
 }
 
+
 esp_err_t properly_inited = ESP_OK;
 
 extern "C" void app_main(void) {
 
-
+    // esp_log_level_set("*" , ESP_LOG_WARN);
+    // esp_log_level_set(TAG , ESP_LOG_INFO);
 
     ESP_LOGI(TAG , "initializing touch");
     if (que_touch == NULL) {
         que_touch = xQueueCreate(1 , sizeof(touch_event_t));
     }
-
     touch_pad_init();
     touch_pad_config(TOUCH_1);
-
     touchsensor_filter_set(TOUCH_PAD_FILTER_IIR_16);
     touch_pad_timeout_set(true , TOUCH_PAD_THRESHOLD_MAX);
     /* Register touch interrupt ISR, enable intr type. */
     touch_pad_isr_register(touchsensor_interrupt_cb , NULL , (touch_pad_intr_mask_t)TOUCH_PAD_INTR_MASK_ALL);
     /* If you have other touch algorithm, you can get the measured value after the `TOUCH_PAD_INTR_MASK_SCAN_DONE` interrupt is generated. */
     touch_pad_intr_enable((touch_pad_intr_mask_t)(TOUCH_PAD_INTR_MASK_ACTIVE | TOUCH_PAD_INTR_MASK_INACTIVE | TOUCH_PAD_INTR_MASK_TIMEOUT));
-
-    /* Enable touch sensor clock. Work mode is "timer trigger". */
     touch_pad_set_fsm_mode(TOUCH_FSM_MODE_TIMER);
     touch_pad_fsm_start();
-
-    // vTaskDelay(pdMS_TO_TICKS(1000));
-    tp_POLO_TRAINER_set_thresholds();
-
-    // uint32_t tres;
-    // touch_pad_sleep_channel_enable(TOUCH_1 , true);
-
-    // touch_pad_get_thresh(TOUCH_1 , &tres);
-
-    // touch_pad_sleep_set_threshold(TOUCH_1 , tres);
-
-    // Start a task to show what pads have been touched
-    // xTaskCreate(&tp_POLO_TRAINER_read_task , "touch_pad_read_task" , 4096 , NULL , 5 , NULL);
-
-
-
-    // uint32_t touch_value;
-    // touch_pad_read_benchmark(TOUCH_1 , &touch_value);
-    //set interrupt threshold.
-    // touch_pad_set_thresh(TOUCH_1 , touch_value * 0.2);
-    // ESP_LOGI(TAG, "touch pad [%d] base %"PRIu32", thresh %"PRIu32,
+    touch_set_thresholds();
 
     ESP_LOGI(TAG , "initializing storage...");
 
@@ -808,7 +911,7 @@ extern "C" void app_main(void) {
 #endif  // CONFIG_POLO_TRAINER_STORAGE_MEDIA_SPIFLASH
 
     //mounted in the app by default
-    properly_inited = _mount_and_find_1_wav();
+    properly_inited = _mount_and_find_1_audio();
 
     esp_sleep_wakeup_cause_t  cause = esp_sleep_get_wakeup_cause();
     ESP_LOGW(TAG , "wakeup cause: %d" , cause);
@@ -822,21 +925,16 @@ extern "C" void app_main(void) {
 
     rtc_gpio_pullup_en(GPIO_NUM_0);
     rtc_gpio_pulldown_dis(GPIO_NUM_0);
-    // gpio_deep_sleep_hold_en();
-    // if (gpio_get_level(GPIO_NUM_0) == 0) {
-    //     properly_inited = -1;
-    // }
 
     int timeout = 0;
-
-
 
 
 #define TIMEOUT 20
 
     if (properly_inited == ESP_OK && cause == ESP_SLEEP_WAKEUP_TOUCHPAD) {
         // play audio
-        play_wav(full_name);
+        // play_wav(full_name);
+        play_mp3(full_name);
 
         // esp_deep_sleep_start();
     }
@@ -873,56 +971,5 @@ extern "C" void app_main(void) {
     vTaskDelay(pdMS_TO_TICKS(50));
 
     esp_deep_sleep_start();
-
-    // }
-
-
-
-    // while (1) {
-    //     // while (tud_connected()) {
-    //     vTaskDelay(100);
-    // }
-
-    // while (1) {
-        // if (timeout >= TIMEOUT) {
-        //     ESP_LOGI(TAG , "USB MSC initialization");
-        //     const tinyusb_config_t tusb_cfg = {
-        //         .device_descriptor = &descriptor_config,
-        //         .string_descriptor = string_desc_arr,
-        //         .string_descriptor_count = sizeof(string_desc_arr) / sizeof(string_desc_arr[0]),
-        //         .external_phy = false,
-        // #if (TUD_OPT_HIGH_SPEED)
-        //         .fs_configuration_descriptor = msc_fs_configuration_desc,
-        //         .hs_configuration_descriptor = msc_hs_configuration_desc,
-        //         .qualifier_descriptor = &device_qualifier,
-        // #else
-        //         .configuration_descriptor = msc_fs_configuration_desc,
-        // #endif // TUD_OPT_HIGH_SPEED
-        //     };
-        //     esp_err_t err = (tinyusb_driver_install(&tusb_cfg));
-        //     if (err != ESP_OK) {
-        //         normalizing_coeff = 0;
-        //         tinyusb_driver_uninstall();
-        //         esp_restart();
-        //     }
-        //     timeout = 0;
-        //     while (!gpio_get_level(GPIO_NUM_0)) {
-        //         vTaskDelay(pdMS_TO_TICKS(100));
-        //     }
-
-        // }
-        // if (!gpio_get_level(GPIO_NUM_0)) {
-        //     timeout++;
-        // } else {
-        //     if (timeout) {
-        //         play_wav(full_name);
-        //     }
-        //     timeout = 0;
-        // }
-        // vTaskDelay(pdMS_TO_TICKS(100));
-    // }
-
-
-
 
 }
