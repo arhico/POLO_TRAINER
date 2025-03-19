@@ -22,12 +22,12 @@
 #include "driver/dac_continuous.h"
 #include "tinyusb.h"
 #include "tusb_msc_storage.h"
-#ifdef CONFIG_EXAMPLE_STORAGE_MEDIA_SDMMC
+#ifdef CONFIG_POLO_TRAINER_STORAGE_MEDIA_SDMMC
 #include "diskio_impl.h"
 #include "diskio_sdmmc.h"
-#if CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_INTERNAL_IO
+#if CONFIG_POLO_TRAINER_SD_PWR_CTRL_LDO_INTERNAL_IO
 #include "sd_pwr_ctrl_by_on_chip_ldo.h"
-#endif // CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_INTERNAL_IO
+#endif // CONFIG_POLO_TRAINER_SD_PWR_CTRL_LDO_INTERNAL_IO
 #endif
 #include "math.h"
 #include "driver/touch_sensor.h"
@@ -330,7 +330,7 @@ static void storage_mount_changed_cb(tinyusb_msc_event_t* event) {
     ESP_LOGI(TAG , "Storage mounted to application: %s" , event->mount_changed_data.is_mounted ? "Yes" : "No");
 }
 
-#ifdef CONFIG_EXAMPLE_STORAGE_MEDIA_SPIFLASH
+#ifdef CONFIG_POLO_TRAINER_STORAGE_MEDIA_SPIFLASH
 static esp_err_t storage_init_spiflash(wl_handle_t* wl_handle) {
     ESP_LOGI(TAG , "Initializing wear levelling");
 
@@ -342,7 +342,7 @@ static esp_err_t storage_init_spiflash(wl_handle_t* wl_handle) {
 
     return wl_mount(data_partition , wl_handle);
 }
-#else  // CONFIG_EXAMPLE_STORAGE_MEDIA_SPIFLASH
+#else  // CONFIG_POLO_TRAINER_STORAGE_MEDIA_SPIFLASH
 static esp_err_t storage_init_sdmmc(sdmmc_card_t** card) {
     esp_err_t ret = ESP_OK;
     bool host_init = false;
@@ -358,9 +358,9 @@ static esp_err_t storage_init_sdmmc(sdmmc_card_t** card) {
     // For SoCs where the SD power can be supplied both via an internal or external (e.g. on-board LDO) power supply.
     // When using specific IO pins (which can be used for ultra high-speed SDMMC) to connect to the SD card
     // and the internal LDO power supply, we need to initialize the power supply first.
-#if CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_INTERNAL_IO
+#if CONFIG_POLO_TRAINER_SD_PWR_CTRL_LDO_INTERNAL_IO
     sd_pwr_ctrl_ldo_config_t ldo_config = {
-        .ldo_chan_id = CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_IO_ID,
+        .ldo_chan_id = CONFIG_POLO_TRAINER_SD_PWR_CTRL_LDO_IO_ID,
     };
     sd_pwr_ctrl_handle_t pwr_ctrl_handle = NULL;
 
@@ -377,22 +377,22 @@ static esp_err_t storage_init_sdmmc(sdmmc_card_t** card) {
     sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
 
     // For SD Card, set bus width to use
-#ifdef CONFIG_EXAMPLE_SDMMC_BUS_WIDTH_4
+#ifdef CONFIG_POLO_TRAINER_SDMMC_BUS_WIDTH_4
     slot_config.width = 4;
 #else
     slot_config.width = 1;
-#endif  // CONFIG_EXAMPLE_SDMMC_BUS_WIDTH_4
+#endif  // CONFIG_POLO_TRAINER_SDMMC_BUS_WIDTH_4
 
     // On chips where the GPIOs used for SD card can be configured, set the user defined values
 #ifdef CONFIG_SOC_SDMMC_USE_GPIO_MATRIX
-    slot_config.clk = CONFIG_EXAMPLE_PIN_CLK;
-    slot_config.cmd = CONFIG_EXAMPLE_PIN_CMD;
-    slot_config.d0 = CONFIG_EXAMPLE_PIN_D0;
-#ifdef CONFIG_EXAMPLE_SDMMC_BUS_WIDTH_4
-    slot_config.d1 = CONFIG_EXAMPLE_PIN_D1;
-    slot_config.d2 = CONFIG_EXAMPLE_PIN_D2;
-    slot_config.d3 = CONFIG_EXAMPLE_PIN_D3;
-#endif  // CONFIG_EXAMPLE_SDMMC_BUS_WIDTH_4
+    slot_config.clk = CONFIG_POLO_TRAINER_PIN_CLK;
+    slot_config.cmd = CONFIG_POLO_TRAINER_PIN_CMD;
+    slot_config.d0 = CONFIG_POLO_TRAINER_PIN_D0;
+#ifdef CONFIG_POLO_TRAINER_SDMMC_BUS_WIDTH_4
+    slot_config.d1 = CONFIG_POLO_TRAINER_PIN_D1;
+    slot_config.d2 = CONFIG_POLO_TRAINER_PIN_D2;
+    slot_config.d3 = CONFIG_POLO_TRAINER_PIN_D3;
+#endif  // CONFIG_POLO_TRAINER_SDMMC_BUS_WIDTH_4
 
 #endif  // CONFIG_SOC_SDMMC_USE_GPIO_MATRIX
 
@@ -434,13 +434,13 @@ clean:
         free(sd_card);
         sd_card = NULL;
     }
-#if CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_INTERNAL_IO
+#if CONFIG_POLO_TRAINER_SD_PWR_CTRL_LDO_INTERNAL_IO
     // We don't need to duplicate error here as all error messages are handled via sd_pwr_* call
     sd_pwr_ctrl_del_on_chip_ldo(pwr_ctrl_handle);
-#endif // CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_INTERNAL_IO
+#endif // CONFIG_POLO_TRAINER_SD_PWR_CTRL_LDO_INTERNAL_IO
     return ret;
 }
-#endif  // CONFIG_EXAMPLE_STORAGE_MEDIA_SPIFLASH
+#endif  // CONFIG_POLO_TRAINER_STORAGE_MEDIA_SPIFLASH
 
 
 
@@ -587,7 +587,7 @@ IRAM_ATTR esp_err_t play_wav(char* fp) {
     };
     ESP_ERROR_CHECK(dac_continuous_new_channels(&cont_cfg , &dac_handle));
 
-// #if CONFIG_EXAMPLE_DAC_WRITE_ASYNC
+// #if CONFIG_POLO_TRAINER_DAC_WRITE_ASYNC
 //     /* Create a queue to transport the interrupt event data */
 //     QueueHandle_t que = xQueueCreate(10 , sizeof(dac_event_data_t));
 //     assert(que);
@@ -666,7 +666,7 @@ static void touchsensor_interrupt_cb(void* arg) {
     }
 }
 
-static void tp_example_set_thresholds(void) {
+static void tp_POLO_TRAINER_set_thresholds(void) {
     RTC_DATA_ATTR static bool calibrated = false;
     RTC_DATA_ATTR static uint32_t cal_value;
 
@@ -688,12 +688,12 @@ static void tp_example_set_thresholds(void) {
     }
 }
 
-static void tp_example_read_task(void* pvParameter) {
+static void tp_POLO_TRAINER_read_task(void* pvParameter) {
     touch_event_t evt;
     static uint8_t guard_mode_flag = 0;
     /* Wait touch sensor init done */
 
-    tp_example_set_thresholds();
+    tp_POLO_TRAINER_set_thresholds();
 
     while (1) {
         int ret = xQueueReceive(que_touch , &evt , (TickType_t)portMAX_DELAY);
@@ -761,7 +761,7 @@ extern "C" void app_main(void) {
     touch_pad_fsm_start();
 
     // vTaskDelay(pdMS_TO_TICKS(1000));
-    tp_example_set_thresholds();
+    tp_POLO_TRAINER_set_thresholds();
 
     // uint32_t tres;
     // touch_pad_sleep_channel_enable(TOUCH_1 , true);
@@ -771,7 +771,7 @@ extern "C" void app_main(void) {
     // touch_pad_sleep_set_threshold(TOUCH_1 , tres);
 
     // Start a task to show what pads have been touched
-    // xTaskCreate(&tp_example_read_task , "touch_pad_read_task" , 4096 , NULL , 5 , NULL);
+    // xTaskCreate(&tp_POLO_TRAINER_read_task , "touch_pad_read_task" , 4096 , NULL , 5 , NULL);
 
 
 
@@ -783,7 +783,7 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG , "initializing storage...");
 
-#ifdef CONFIG_EXAMPLE_STORAGE_MEDIA_SPIFLASH
+#ifdef CONFIG_POLO_TRAINER_STORAGE_MEDIA_SPIFLASH
     static wl_handle_t wl_handle = WL_INVALID_HANDLE;
     ESP_ERROR_CHECK(storage_init_spiflash(&wl_handle));
 
@@ -794,7 +794,7 @@ extern "C" void app_main(void) {
     };
     ESP_ERROR_CHECK(tinyusb_msc_storage_init_spiflash(&config_spi));
     ESP_ERROR_CHECK(tinyusb_msc_register_callback(TINYUSB_MSC_EVENT_MOUNT_CHANGED , storage_mount_changed_cb)); /* Other way to register the callback i.e. registering using separate API. If the callback had been already registered, it will be overwritten. */
-#else // CONFIG_EXAMPLE_STORAGE_MEDIA_SPIFLASH
+#else // CONFIG_POLO_TRAINER_STORAGE_MEDIA_SPIFLASH
     static sdmmc_card_t* card = NULL;
     ESP_ERROR_CHECK(storage_init_sdmmc(&card));
 
@@ -805,7 +805,7 @@ extern "C" void app_main(void) {
     };
     ESP_ERROR_CHECK(tinyusb_msc_storage_init_sdmmc(&config_sdmmc));
     ESP_ERROR_CHECK(tinyusb_msc_register_callback(TINYUSB_MSC_EVENT_MOUNT_CHANGED , storage_mount_changed_cb)); /* Other way to register the callback i.e. registering using separate API. If the callback had been already registered, it will be overwritten. */
-#endif  // CONFIG_EXAMPLE_STORAGE_MEDIA_SPIFLASH
+#endif  // CONFIG_POLO_TRAINER_STORAGE_MEDIA_SPIFLASH
 
     //mounted in the app by default
     properly_inited = _mount_and_find_1_wav();
