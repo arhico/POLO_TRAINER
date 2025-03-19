@@ -650,12 +650,20 @@ IRAM_ATTR esp_err_t play_wav(char* fp) {
 
 
 
-int mp3_music_read_cb(audio_element_handle_t el , char* buf , int len , TickType_t wait_time , void* ctx) {
+IRAM_ATTR int mp3_music_read_cb(audio_element_handle_t el , char* buf , int len , TickType_t wait_time , void* ctx) {
     // int read_size = file_marker.end - file_marker.start - file_marker.pos;
-    int read_size = 0;
+    FILE* fh = (FILE*)ctx;
+
+
+    // vTaskDelay(100);
+
+    size_t read_size = fread(buf , sizeof(char) , len , fh);
+    ESP_LOGI("mp3_music_read_cb" , "reading %d bytes, read %u" , len , read_size);
+
+     // int read_size = 0;
     if (read_size == 0) {
         return AEL_IO_DONE;
-    } else if (len < read_size) {
+    } else if (read_size < len) {
         read_size = len;
     }
     // memcpy(buf , file_marker.start + file_marker.pos , read_size);
@@ -664,57 +672,80 @@ int mp3_music_read_cb(audio_element_handle_t el , char* buf , int len , TickType
 }
 
 
-void play_mp3(char* fp) {
+IRAM_ATTR int play_mp3(char* fp) {
+
+    ESP_LOGI("play_mp3" , "playing: %s" , fp);
+    FILE* fh = fopen(fp , "rb");
+    if (fh == NULL) {
+        ESP_LOGE("play_mp3" , "Failed to open file");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+
+
     audio_pipeline_handle_t pipeline;
     audio_element_handle_t mp3_decoder;
     // audio_element_handle_t i2s_stream_writer, mp3_decoder;
-    ESP_LOGI(TAG , "creating audio pipeline");
+    ESP_LOGI("play_mp3" , "creating audio pipeline");
     audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
     pipeline = audio_pipeline_init(&pipeline_cfg);
     mem_assert(pipeline);
 
 
-    ESP_LOGI(TAG , "creating mp3 decoder");
+    ESP_LOGI("play_mp3" , "creating mp3 decoder");
     mp3_decoder_cfg_t mp3_cfg = DEFAULT_MP3_DECODER_CONFIG();
     mp3_decoder = mp3_decoder_init(&mp3_cfg);
-    audio_element_set_read_cb(mp3_decoder , mp3_music_read_cb , NULL);
+    audio_element_set_read_cb(mp3_decoder , mp3_music_read_cb , (void*)fh);
 
 
-    ESP_LOGI(TAG , "registering all elements to audio pipeline");
+    ESP_LOGI("play_mp3" , "registering all elements to audio pipeline");
     audio_pipeline_register(pipeline , mp3_decoder , "mp3");
     // audio_pipeline_register(pipeline, i2s_stream_writer, "i2s");
 
 
-    ESP_LOGI(TAG , "[2.4] Link it together [mp3_music_read_cb]-->mp3_decoder-->i2s_stream-->[codec_chip]");
+    ESP_LOGI("play_mp3" , "link together [mp3_music_read_cb]-->mp3_decoder");
     const char* link_tag[1] = {"mp3"};
     audio_pipeline_link(pipeline , &link_tag[0] , 1);
 
 
-    ESP_LOGI(TAG , "[ 4 ] Set up  event listener");
+    ESP_LOGI("play_mp3" , "set up  event listener");
     audio_event_iface_cfg_t evt_cfg = AUDIO_EVENT_IFACE_DEFAULT_CFG();
     audio_event_iface_handle_t evt = audio_event_iface_init(&evt_cfg);
 
-    ESP_LOGI(TAG , "[4.1] Listening event from all elements of pipeline");
+    ESP_LOGI("play_mp3" , "listening event from all elements of pipeline");
     audio_pipeline_set_listener(pipeline , evt);
+
+    ESP_ERROR_CHECK(audio_pipeline_run(pipeline));
+
+    audio_element_info_t music_info = {0};
+
+    audio_element_getinfo(mp3_decoder , &music_info);
+    ESP_LOGI("play_mp3" , "music info from mp3 decoder, sample_rates=%d, bits=%d, ch=%d" , music_info.sample_rates , music_info.bits , music_info.channels);
+
 
 
 
     while (1) {
+
         audio_event_iface_msg_t msg;
         esp_err_t ret = audio_event_iface_listen(evt , &msg , portMAX_DELAY);
         if (ret != ESP_OK) {
             continue;
         }
+    }
 
-        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void*)mp3_decoder
-            && msg.cmd == AEL_MSG_CMD_REPORT_MUSIC_INFO) {
-            audio_element_info_t music_info = {0};
-            audio_element_getinfo(mp3_decoder , &music_info);
-            ESP_LOGI(TAG , "[ * ] Receive music info from mp3 decoder, sample_rates=%d, bits=%d, ch=%d" ,
-                music_info.sample_rates , music_info.bits , music_info.channels);
-       // i2s_stream_set_clk(i2s_stream_writer, music_info.sample_rates, music_info.bits, music_info.channels);
-            continue;
-        }
+        // if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void*)mp3_decoder
+            // && msg.cmd == AEL_MSG_CMD_REPORT_MUSIC_INFO) {
+
+    // vTaskDelay(1000);
+
+
+    // vTaskDelay(1000);
+
+
+            // i2s_stream_set_clk(i2s_stream_writer, music_info.sample_rates, music_info.bits, music_info.channels);
+            // continue;
+        // }
 
         // if ((msg.source_type == PERIPH_ID_TOUCH || msg.source_type == PERIPH_ID_BUTTON || msg.source_type == PERIPH_ID_ADC_BTN)
         //     && (msg.cmd == PERIPH_TOUCH_TAP || msg.cmd == PERIPH_BUTTON_PRESSED || msg.cmd == PERIPH_ADC_BUTTON_PRESSED)) {
@@ -776,20 +807,21 @@ void play_mp3(char* fp) {
         //         ESP_LOGI(TAG, "[ * ] Volume set to %d %%", player_volume);
         //     }
         // }
-    }
+    // }
 
-    ESP_LOGI(TAG , "[ 6 ] Stop audio_pipeline");
-    audio_pipeline_stop(pipeline);
+    // vTaskDelay
+    // ESP_LOGI(TAG , "[ 6 ] Stop audio_pipeline");
+    // audio_pipeline_stop(pipeline);
     audio_pipeline_wait_for_stop(pipeline);
     audio_pipeline_terminate(pipeline);
     audio_pipeline_unregister(pipeline , mp3_decoder);
     // audio_pipeline_unregister(pipeline, i2s_stream_writer);
 
     /* Terminate the pipeline before removing the listener */
-    audio_pipeline_remove_listener(pipeline);
+    // audio_pipeline_remove_listener(pipeline);
 
     /* Make sure audio_pipeline_remove_listener is called before destroying event_iface */
-    audio_event_iface_destroy(evt);
+    // audio_event_iface_destroy(evt);
 
     /* Release all resources */
     audio_pipeline_deinit(pipeline);
@@ -797,6 +829,7 @@ void play_mp3(char* fp) {
     audio_element_deinit(mp3_decoder);
 
     // audio_pipeline_run(pipeline);
+    return ESP_OK;
 }
 
 #define TOUCH_1 TOUCH_PAD_NUM2
@@ -905,8 +938,8 @@ esp_err_t properly_inited = ESP_OK;
 
 extern "C" void app_main(void) {
 
-    esp_log_level_set("*" , ESP_LOG_WARN);
-    esp_log_level_set(TAG , ESP_LOG_INFO);
+    // esp_log_level_set("*" , ESP_LOG_WARN);
+    // esp_log_level_set(TAG , ESP_LOG_INFO);
 
 
     ESP_LOGI(TAG , "initializing touch");
