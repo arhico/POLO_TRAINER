@@ -675,8 +675,9 @@ IRAM_ATTR int play_mp3(char* fp) {
 
     ESP_LOGI("play_mp3" , "create output stream to write to pwm");
     pwm_stream_cfg_t pwm_cfg = PWM_STREAM_CFG_DEFAULT();
-    pwm_cfg.pwm_config.gpio_num_left = CONFIG_PWM_LEFT_OUTPUT_GPIO_NUM;
-    pwm_cfg.pwm_config.gpio_num_right = CONFIG_PWM_RIGHT_OUTPUT_GPIO_NUM;
+    // pwm_cfg.pwm_config.gpio_num_left = CONFIG_PWM_LEFT_OUTPUT_GPIO_NUM;
+    // pwm_cfg.pwm_config.gpio_num_right = CONFIG_PWM_RIGHT_OUTPUT_GPIO_NUM;
+    pwm_cfg.pwm_config.duty_resolution = LEDC_TIMER_9_BIT;
     output_stream_writer = pwm_stream_init(&pwm_cfg);
 
     ESP_LOGI("play_mp3" , "create mp3 decoder");
@@ -715,7 +716,7 @@ IRAM_ATTR int play_mp3(char* fp) {
             && msg.cmd == AEL_MSG_CMD_REPORT_MUSIC_INFO) {
             audio_element_info_t music_info = {0};
             audio_element_getinfo(mp3_decoder , &music_info);
-            ESP_LOGI("play_mp3" , "music info from mp3 decoder, sample_rates=%d, bits=%d, ch=%d, kbps=%d, duration=%d" , music_info.sample_rates , music_info.bits , music_info.channels , music_info.bps / 1024 , music_info.duration);
+            ESP_LOGI("play_mp3" , "music info from mp3 decoder, sample_rates=%d, bits=%d, ch=%d, kbps=%d, duration=%d" , music_info.sample_rates , music_info.bits , music_info.channels , music_info.bps / 1000 , music_info.duration);
             audio_element_set_music_info(output_stream_writer , music_info.sample_rates , music_info.channels , music_info.bits);
             pwm_stream_set_clk(output_stream_writer , music_info.sample_rates , music_info.bits , music_info.channels);
             continue;
@@ -885,6 +886,7 @@ extern "C" void app_main(void) {
     touch_set_thresholds();
 
     ESP_LOGI(TAG , "initializing storage...");
+    f_setlabel("POLO TRAINER");
 
 #ifdef CONFIG_POLO_TRAINER_STORAGE_MEDIA_SPIFLASH
     static wl_handle_t wl_handle = WL_INVALID_HANDLE;
@@ -896,7 +898,8 @@ extern "C" void app_main(void) {
         .mount_config = {.max_files = 5},
     };
     ESP_ERROR_CHECK(tinyusb_msc_storage_init_spiflash(&config_spi));
-    ESP_ERROR_CHECK(tinyusb_msc_register_callback(TINYUSB_MSC_EVENT_MOUNT_CHANGED , storage_mount_changed_cb)); /* Other way to register the callback i.e. registering using separate API. If the callback had been already registered, it will be overwritten. */
+    // ESP_ERROR_CHECK(tinyusb_msc_register_callback(TINYUSB_MSC_EVENT_MOUNT_CHANGED , storage_mount_changed_cb)); /* Other way to register the callback i.e. registering using separate API. If the callback had been already registered, it will be overwritten. */
+
 #else // CONFIG_POLO_TRAINER_STORAGE_MEDIA_SPIFLASH
     static sdmmc_card_t* card = NULL;
     ESP_ERROR_CHECK(storage_init_sdmmc(&card));
