@@ -18,6 +18,6 @@ another device for interacting with pets. Polo is our family friends pet; hope t
     🕝 retrigger
 
 ## Electronics 🕝
-    esp32s2 mini module
+    esp32s2 mini module. audio output is directed to DAC channels via PWM (GPIO17 & GPIO18)
 ## Biuld
     project based on espidf 5.4.0 with espadf for esp32s2 target

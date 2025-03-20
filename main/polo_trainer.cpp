@@ -672,6 +672,11 @@ IRAM_ATTR int mp3_music_read_cb(audio_element_handle_t el , char* buf , int len 
 #define CONFIG_PWM_LEFT_OUTPUT_GPIO_NUM GPIO_NUM_17
 #define CONFIG_PWM_RIGHT_OUTPUT_GPIO_NUM GPIO_NUM_18
 
+// audio_event_iface_handle_t audio_evt_iface_handle;
+// ESP_LOGI("play_mp3" , "set up  event listener");
+audio_event_iface_cfg_t evt_cfg = AUDIO_EVENT_IFACE_DEFAULT_CFG();
+audio_event_iface_handle_t audio_evt_iface_handle = audio_event_iface_init(&evt_cfg);
+
 IRAM_ATTR int play_mp3(char* fp) {
 
     ESP_LOGI("play_mp3" , "playing: %s" , fp);
@@ -710,19 +715,19 @@ IRAM_ATTR int play_mp3(char* fp) {
     const char* link_tag[2] = {"mp3", "output"};
     audio_pipeline_link(pipeline , &link_tag[0] , 2);
 
-    ESP_LOGI("play_mp3" , "set up  event listener");
-    audio_event_iface_cfg_t evt_cfg = AUDIO_EVENT_IFACE_DEFAULT_CFG();
-    audio_event_iface_handle_t evt = audio_event_iface_init(&evt_cfg);
+    // ESP_LOGI("play_mp3" , "set up  event listener");
+    // audio_event_iface_cfg_t evt_cfg = AUDIO_EVENT_IFACE_DEFAULT_CFG();
+    // audio_evt_iface_handle = audio_event_iface_init(&evt_cfg);
 
     ESP_LOGI("play_mp3" , "listening event from all elements of pipeline");
-    audio_pipeline_set_listener(pipeline , evt);
+    audio_pipeline_set_listener(pipeline , audio_evt_iface_handle);
 
     ESP_ERROR_CHECK(audio_pipeline_run(pipeline));
 
 
     while (1) {
         audio_event_iface_msg_t msg;
-        esp_err_t ret = audio_event_iface_listen(evt , &msg , portMAX_DELAY);
+        esp_err_t ret = audio_event_iface_listen(audio_evt_iface_handle , &msg , portMAX_DELAY);
         ESP_LOGD("play_mp3" , "event: %d" , msg.cmd);
         if (ret != ESP_OK) {
             continue;
@@ -746,10 +751,12 @@ IRAM_ATTR int play_mp3(char* fp) {
             break;
         }
 
-        if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void*)mp3_decoder
-            && msg.cmd == AEL_MSG_CMD_REPORT_POSITION) {
-            continue;
-        }
+        // if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void*)mp3_decoder
+        //     && msg.cmd == AEL_MSG_CMD_REPORT_POSITION) {
+        //     continue;
+        // }
+
+        ESP_LOGW("play_mp3" , "unknown data: msg.source_type: %d, msg.source is NULL: %d, msg.cmd: %d, msg.data_len: %d" , msg.source_type , (msg.source == NULL) , msg.cmd , msg.data_len);
     }
 
     ESP_LOGI(TAG , "stop audio_pipeline");
@@ -763,7 +770,7 @@ IRAM_ATTR int play_mp3(char* fp) {
     audio_pipeline_remove_listener(pipeline);
 
     /* Make sure audio_pipeline_remove_listener is called before destroying event_iface */
-    audio_event_iface_destroy(evt);
+    audio_event_iface_destroy(audio_evt_iface_handle);
 
     /* Release all resources */
     audio_pipeline_deinit(pipeline);
@@ -831,11 +838,23 @@ static void touch_set_thresholds(void) {
 }
 
 static void touch_read_task(void* pvParameter) {
+    // touch_set_thresholds();
     touch_event_t evt;
     static uint8_t guard_mode_flag = 0;
-    /* Wait touch sensor init done */
+    if (!pvParameter) {
+        // audio_event_iface_handle_t iface_handle = (audio_event_iface_handle_t)pvParameter;
+    // } else {
+        ESP_LOGE("touch_read_task" , "touch task can't send audio events cmd with no iface handle specified. waiting for pointer not to be NULL..." , );
+    }
 
-    touch_set_thresholds();
+    while (!pvParameter) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    ESP_LOGI("touch_read_task" , "entering touch task");
+
+    audio_event_iface_handle_t iface_handle = (audio_event_iface_handle_t)pvParameter;
+
 
     while (1) {
         int ret = xQueueReceive(que_touch , &evt , (TickType_t)portMAX_DELAY);
@@ -849,8 +868,22 @@ static void touch_read_task(void* pvParameter) {
             //     ESP_LOGW(TAG, "TouchSensor [%"PRIu32"] be activated, enter guard mode", evt.pad_num);
             // } else {
             //     if (guard_mode_flag == 0) {
-            ESP_LOGI(TAG , "TouchSensor [%"PRIu32"] be activated, status mask 0x%"PRIu32"" , evt.pad_num , evt.pad_status);
+            ESP_LOGI(TAG , "touch [%"PRIu32"] is activated, status mask 0x%"PRIu32"" , evt.pad_num , evt.pad_status);
         // } else {
+
+
+            if (pvParameter) {
+
+                audio_event_iface_msg_t msg;
+                // msg = {0};
+                msg.source_type = 0;
+                msg.source = NULL;
+                msg.cmd = AEL_MSG_CMD_RESUME;
+
+                    // audio_event_iface_cmd();
+            }
+
+
             // ESP_LOGW(TAG, "In guard mode. No response");
         // }
     // }
@@ -862,16 +895,16 @@ static void touch_read_task(void* pvParameter) {
                 // ESP_LOGW(TAG, "TouchSensor [%"PRIu32"] be inactivated, exit guard mode", evt.pad_num);
             // } else {
                 // if (guard_mode_flag == 0) {
-            ESP_LOGI(TAG , "TouchSensor [%"PRIu32"] be inactivated, status mask 0x%"PRIu32 , evt.pad_num , evt.pad_status);
+            ESP_LOGI(TAG , "touch [%"PRIu32"] deactivated, status mask 0x%"PRIu32 , evt.pad_num , evt.pad_status);
         // }
     // }
         }
         if (evt.intr_mask & TOUCH_PAD_INTR_MASK_SCAN_DONE) {
-            ESP_LOGI(TAG , "The touch sensor group measurement is done [%"PRIu32"]." , evt.pad_num);
+            ESP_LOGI(TAG , "touch group measurement done [%"PRIu32"]" , evt.pad_num);
         }
         if (evt.intr_mask & TOUCH_PAD_INTR_MASK_TIMEOUT) {
             /* Add your exception handling in here. */
-            ESP_LOGI(TAG , "Touch sensor channel %"PRIu32" measure timeout. Skip this exception channel!!" , evt.pad_num);
+            ESP_LOGW(TAG , "touch channel %"PRIu32" measure timeout" , evt.pad_num);
             touch_pad_timeout_resume(); // Point on the next channel to measure.
         }
     }
@@ -900,6 +933,8 @@ extern "C" void app_main(void) {
     touch_pad_set_fsm_mode(TOUCH_FSM_MODE_TIMER);
     touch_pad_fsm_start();
     touch_set_thresholds();
+
+
 
     ESP_LOGI(TAG , "initializing storage...");
     f_setlabel("POLO TRAINER");
@@ -946,6 +981,8 @@ extern "C" void app_main(void) {
     rtc_gpio_pulldown_dis(GPIO_NUM_0);
 
     int timeout = 0;
+
+    xTaskCreate(touch_read_task , "touch_read" , 4096 , (void*)audio_evt_iface_handle , 15 , NULL);
 
 #define TIMEOUT 20
 
