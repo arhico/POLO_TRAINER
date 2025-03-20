@@ -1,15 +1,6 @@
-/*
- * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
- *
- * SPDX-License-Identifier: Unlicense OR CC0-1.0
- */
-
-/* DESCRIPTION:
- * This example contains code to make ESP32 based device recognizable by USB-hosts as a USB Mass Storage Device.
- * It either allows the embedded application i.e. example to access the partition or Host PC accesses the partition over USB MSC.
- * They can't be allowed to access the partition at the same time.
- * For different scenarios and behaviour, Refer to README of this example.
- */
+// ! ||--------------------------------------------------------------------------------||
+// ! ||                  Copyright 2025 < automind.top > / arhico                      ||
+// ! ||--------------------------------------------------------------------------------||
 
 #include <errno.h>
 #include <dirent.h>
@@ -138,54 +129,6 @@ static char const* string_desc_arr[] = {
 
 #define BASE_PATH "/data" // base path to mount the partition
 
-// #define PROMPT_STR CONFIG_IDF_TARGET
-// static int console_unmount(int argc , char** argv);
-// static int console_read(int argc , char** argv);
-// static int console_write(int argc , char** argv);
-// static int console_size(int argc , char** argv);
-// static int console_status(int argc , char** argv);
-// static int console_exit(int argc , char** argv);
-// const esp_console_cmd_t cmds[] = {
-//     {
-//         .command = "read",
-//         .help = "read BASE_PATH/README.MD and print its contents",
-//         .hint = NULL,
-//         .func = &console_read,
-//     },
-//     {
-//         .command = "write",
-//         .help = "create file BASE_PATH/README.MD if it does not exist",
-//         .hint = NULL,
-//         .func = &console_write,
-//     },
-//     {
-//         .command = "size",
-//         .help = "show storage size and sector size",
-//         .hint = NULL,
-//         .func = &console_size,
-//     },
-//     {
-//         .command = "expose",
-//         .help = "Expose Storage to Host",
-//         .hint = NULL,
-//         .func = &console_unmount,
-//     },
-//     {
-//         .command = "status",
-//         .help = "Status of storage exposure over USB",
-//         .hint = NULL,
-//         .func = &console_status,
-//     },
-//     {
-//         .command = "exit",
-//         .help = "exit from application",
-//         .hint = NULL,
-//         .func = &console_exit,
-//     }
-// };
-
-// mount the partition and show all the files in BASE_PATH
-
 enum filetypes_t {
     UNDEFINED = -1 ,
     WAV_FILETYPE ,
@@ -220,7 +163,6 @@ IRAM_ATTR static esp_err_t _mount_and_find_1_audio() {
             // while the next entry is not readable we will print directory files
         while ((d = readdir(dh)) != NULL) {
             printf("%s, %d\n" , d->d_name , (int)d->d_type);
-
 
             for (int i = 0; ; i++) {
                 if (d->d_name[i] == '\0') {
@@ -264,85 +206,6 @@ IRAM_ATTR static esp_err_t _mount_and_find_1_audio() {
     return !name_obtained;
 }
 
-// // unmount storage
-// static int console_unmount(int argc , char** argv) {
-//     if (tinyusb_msc_storage_in_use_by_usb_host()) {
-//         ESP_LOGE(TAG , "storage is already exposed");
-//         return -1;
-//     }
-//     ESP_LOGI(TAG , "Unmount storage...");
-//     ESP_ERROR_CHECK(tinyusb_msc_storage_unmount());
-//     return 0;
-// }
-
-// // read BASE_PATH/README.MD and print its contents
-// static int console_read(int argc , char** argv) {
-//     if (tinyusb_msc_storage_in_use_by_usb_host()) {
-//         ESP_LOGE(TAG , "storage exposed over USB. Application can't read from storage.");
-//         return -1;
-//     }
-//     ESP_LOGD(TAG , "read from storage:");
-//     const char* filename = BASE_PATH "/README.MD";
-//     FILE* ptr = fopen(filename , "r");
-//     if (ptr == NULL) {
-//         ESP_LOGE(TAG , "Filename not present - %s" , filename);
-//         return -1;
-//     }
-//     char buf[1024];
-//     while (fgets(buf , 1000 , ptr) != NULL) {
-//         printf("%s" , buf);
-//     }
-//     fclose(ptr);
-//     return 0;
-// }
-
-// // create file BASE_PATH/README.MD if it does not exist
-// static int console_write(int argc , char** argv) {
-//     if (tinyusb_msc_storage_in_use_by_usb_host()) {
-//         ESP_LOGE(TAG , "storage exposed over USB. Application can't write to storage.");
-//         return -1;
-//     }
-//     ESP_LOGD(TAG , "write to storage:");
-//     const char* filename = BASE_PATH "/README.MD";
-//     FILE* fd = fopen(filename , "r");
-//     if (!fd) {
-//         ESP_LOGW(TAG , "README.MD doesn't exist yet, creating");
-//         fd = fopen(filename , "w");
-//         fprintf(fd , "Mass Storage Devices are one of the most common USB devices. It use Mass Storage Class (MSC) that allow access to their internal data storage.\n");
-//         fprintf(fd , "In this example, ESP chip will be recognised by host (PC) as Mass Storage Device.\n");
-//         fprintf(fd , "Upon connection to USB host (PC), the example application will initialize the storage module and then the storage will be seen as removable device on PC.\n");
-//         fclose(fd);
-//     }
-//     return 0;
-// }
-
-// // Show storage size and sector size
-// static int console_size(int argc , char** argv) {
-//     if (tinyusb_msc_storage_in_use_by_usb_host()) {
-//         ESP_LOGE(TAG , "storage exposed over USB. Application can't access storage");
-//         return -1;
-//     }
-//     uint32_t sec_count = tinyusb_msc_storage_get_sector_count();
-//     uint32_t sec_size = tinyusb_msc_storage_get_sector_size();
-//     printf("Storage Capacity %lluMB\n" , ((uint64_t)sec_count) * sec_size / (1024 * 1024));
-//     return 0;
-// }
-
-// // exit from application
-// static int console_status(int argc , char** argv) {
-//     printf("storage exposed over USB: %s\n" , tinyusb_msc_storage_in_use_by_usb_host() ? "Yes" : "No");
-//     return 0;
-// }
-
-// // exit from application
-// static int console_exit(int argc , char** argv) {
-//     tinyusb_msc_unregister_callback(TINYUSB_MSC_EVENT_MOUNT_CHANGED);
-//     tinyusb_msc_storage_deinit();
-//     tinyusb_driver_uninstall();
-//     printf("Application Exit\n");
-//     repl->del(repl);
-//     return 0;
-// }
 
 // callback that is delivered when storage is mounted/unmounted by application.
 static void storage_mount_changed_cb(tinyusb_msc_event_t* event) {
@@ -461,18 +324,11 @@ clean:
 }
 #endif  // CONFIG_POLO_TRAINER_STORAGE_MEDIA_SPIFLASH
 
-
-
 // const double nanosec_per_cpu_tick = 1000 / 240.0; // 4 ns @ 240 MHz
 // const uint32_t cpu_ticks_per_period = (uint32_t)(aud_sample_len_ns / nanosec_per_cpu_tick);
 const uint32_t OVERSAMPLING = 4;
 
 IRAM_ATTR static esp_err_t dac_output_with_dither(float gain , uint8_t* buf , uint16_t bitwidth , dac_continuous_handle_t dac_contin , size_t len) {
-    // size_t bytes_written = 0;
-
-        // uint16_t value_16_bit = 0;
-        // uint32_t cpu_tick_count = portGET_RUN_TIME_COUNTER_VALUE();
-
     const int byteskip_div = bitwidth / 8;
     size_t samples_count = len / byteskip_div;
     int8_t buf_8_bit_msb[samples_count];
@@ -725,12 +581,7 @@ static void touch_read_task(void* pvParameter) {
                 audio_pipeline_terminate(pipe_handle);
                 audio_pipeline_reset_ringbuffer(pipe_handle);
                 audio_pipeline_reset_elements(pipe_handle);
-
-                // set_next_file_marker();
-                // seek to start of file
-                // audio_pipeline_run(pipe_handle);
             }
-
             // ESP_LOGW(TAG, "In guard mode. No response");
         // }
     // }
@@ -757,14 +608,12 @@ static void touch_read_task(void* pvParameter) {
 }
 
 
-// audio_event_iface_handle_t audio_evt_iface_handle;
-// ESP_LOGI("play_mp3" , "set up  event listener");
 audio_event_iface_cfg_t evt_cfg = AUDIO_EVENT_IFACE_DEFAULT_CFG();
 audio_event_iface_handle_t audio_evt_iface_handle = audio_event_iface_init(&evt_cfg);
 audio_pipeline_handle_t pipeline;
 
-IRAM_ATTR int play_mp3(char* fp) {
 
+IRAM_ATTR int play_mp3(char* fp) {
     ESP_LOGI("play_mp3" , "playing: %s" , fp);
     FILE* fh = fopen(fp , "rb");
     if (fh == NULL) {
@@ -779,9 +628,7 @@ IRAM_ATTR int play_mp3(char* fp) {
     pipeline = audio_pipeline_init(&pipeline_cfg);
     mem_assert(pipeline);
 
-
     xTaskCreate(touch_read_task , "touch_read" , 4096 , (void*)pipeline , 15 , NULL);
-
 
     ESP_LOGI("play_mp3" , "create output stream to write to pwm");
     pwm_stream_cfg_t pwm_cfg = PWM_STREAM_CFG_DEFAULT();
@@ -804,15 +651,10 @@ IRAM_ATTR int play_mp3(char* fp) {
     const char* link_tag[2] = {"mp3", "output"};
     audio_pipeline_link(pipeline , &link_tag[0] , 2);
 
-    // ESP_LOGI("play_mp3" , "set up  event listener");
-    // audio_event_iface_cfg_t evt_cfg = AUDIO_EVENT_IFACE_DEFAULT_CFG();
-    // audio_evt_iface_handle = audio_event_iface_init(&evt_cfg);
-
     ESP_LOGI("play_mp3" , "listening event from all elements of pipeline");
     audio_pipeline_set_listener(pipeline , audio_evt_iface_handle);
 
     ESP_ERROR_CHECK(audio_pipeline_run(pipeline));
-
 
     while (1) {
         audio_event_iface_msg_t msg;
@@ -845,13 +687,7 @@ IRAM_ATTR int play_mp3(char* fp) {
                 ESP_LOGI("play_mp3" , "finished event received, finishing");
                 break;
             }
-            // break;
         }
-
-        // if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void*)mp3_decoder
-        //     && msg.cmd == AEL_MSG_CMD_REPORT_POSITION) {
-        //     continue;
-        // }
 
         ESP_LOGW("play_mp3" , "unknown data: msg.source_type: %d, msg.source is NULL: %d, msg.cmd: %d, msg.data_len: %d" , msg.source_type , (msg.source == NULL) , msg.cmd , msg.data_len);
     }
@@ -937,10 +773,6 @@ static void touch_set_thresholds(void) {
 esp_err_t properly_inited = ESP_OK;
 
 extern "C" void app_main(void) {
-
-    // esp_log_level_set("*" , ESP_LOG_WARN);
-    // esp_log_level_set(TAG , ESP_LOG_INFO);
-
     ESP_LOGI(TAG , "initializing touch");
     if (que_touch == NULL) {
         que_touch = xQueueCreate(1 , sizeof(touch_event_t));
@@ -956,8 +788,6 @@ extern "C" void app_main(void) {
     touch_pad_set_fsm_mode(TOUCH_FSM_MODE_TIMER);
     touch_pad_fsm_start();
     touch_set_thresholds();
-
-
 
     ESP_LOGI(TAG , "initializing storage...");
     f_setlabel("POLO TRAINER");
@@ -1005,12 +835,9 @@ extern "C" void app_main(void) {
 
     int timeout = 0;
 
-
 #define TIMEOUT 20
 
     if (properly_inited == ESP_OK && cause == ESP_SLEEP_WAKEUP_TOUCHPAD) {
-        // play audio
-        // play_wav(full_name);
         esp_err_t ret = ESP_OK;
         switch (filetype) {
             case WAV_FILETYPE:
@@ -1030,7 +857,6 @@ extern "C" void app_main(void) {
 
         }
 
-        // esp_deep_sleep_start();
     }
     if (properly_inited != ESP_OK || cause == ESP_SLEEP_WAKEUP_EXT0) {
        // mount usb to OS
@@ -1051,23 +877,21 @@ extern "C" void app_main(void) {
         esp_err_t err = (tinyusb_driver_install(&tusb_cfg));
         normalizing_coeff = -1;
         while (gpio_get_level(GPIO_NUM_0) == 0) {
-            if (!tud_ready()) { // doesn't work. TODO
-                goto restart;
-            }
-            vTaskDelay(100);
+            // if (!tud_ready()) { // doesn't work. TODO
+            //     goto restart;
+            // }
+            vTaskDelay(pdMS_TO_TICKS(100));
         }
-        while (gpio_get_level(GPIO_NUM_0) == 1) { vTaskDelay(100); }
-    restart:
+        while (gpio_get_level(GPIO_NUM_0) == 1) { vTaskDelay(pdMS_TO_TICKS(100)); }
+    // restart:
         tinyusb_driver_uninstall();
         ESP_LOGW(TAG , "restarting system");
-        vTaskDelay(pdMS_TO_TICKS(50));
-        while (gpio_get_level(GPIO_NUM_0) == 0) { vTaskDelay(100); }
+        // vTaskDelay(pdMS_TO_TICKS(50));
+        while (gpio_get_level(GPIO_NUM_0) == 0) { vTaskDelay(pdMS_TO_TICKS(100)); }
         esp_restart();
     }
 
     ESP_LOGW(TAG , "going to deep sleep");
-    vTaskDelay(pdMS_TO_TICKS(50));
-
+    // vTaskDelay(pdMS_TO_TICKS(50));
     esp_deep_sleep_start();
-
 }
