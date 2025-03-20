@@ -719,7 +719,14 @@ static void touch_read_task(void* pvParameter) {
             // msg.data_len = 4;
             // audio_event_iface_cmd(iface_handle , &msg);
                 ESP_LOGW("touch_read_task" , "resetting pipeline");
+
+                audio_pipeline_stop(pipe_handle);
+                audio_pipeline_wait_for_stop(pipe_handle);
+                audio_pipeline_terminate(pipe_handle);
+                audio_pipeline_reset_ringbuffer(pipe_handle);
                 audio_pipeline_reset_elements(pipe_handle);
+                // set_next_file_marker();
+                // seek to start of file
                 audio_pipeline_run(pipe_handle);
             }
 
