@@ -725,9 +725,10 @@ static void touch_read_task(void* pvParameter) {
                 audio_pipeline_terminate(pipe_handle);
                 audio_pipeline_reset_ringbuffer(pipe_handle);
                 audio_pipeline_reset_elements(pipe_handle);
+
                 // set_next_file_marker();
                 // seek to start of file
-                audio_pipeline_run(pipe_handle);
+                // audio_pipeline_run(pipe_handle);
             }
 
             // ESP_LOGW(TAG, "In guard mode. No response");
@@ -835,8 +836,16 @@ IRAM_ATTR int play_mp3(char* fp) {
             && msg.cmd == AEL_MSG_CMD_REPORT_STATUS
             && (((int)msg.data == AEL_STATUS_STATE_STOPPED) || ((int)msg.data == AEL_STATUS_STATE_FINISHED))) {
 
-            ESP_LOGI("play_mp3" , "stop event received");
-            break;
+            if (((int)msg.data == AEL_STATUS_STATE_STOPPED)) {
+                ESP_LOGI("play_mp3" , "stop event received, retriggering");
+                fseek(fh , 0 , SEEK_SET);
+                audio_pipeline_run(pipeline);
+                continue;
+            } else {
+                ESP_LOGI("play_mp3" , "finished event received, finishing");
+                break;
+            }
+            // break;
         }
 
         // if (msg.source_type == AUDIO_ELEMENT_TYPE_ELEMENT && msg.source == (void*)mp3_decoder
