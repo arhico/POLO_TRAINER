@@ -772,7 +772,18 @@ static void touch_set_thresholds(void) {
 
 esp_err_t properly_inited = ESP_OK;
 
+static void led_blink(void* args) {
+    gpio_set_direction(GPIO_NUM_15 , GPIO_MODE_INPUT_OUTPUT);
+    int blink_period_ms = 250;
+    while (1) {
+        gpio_set_level(GPIO_NUM_15 , !gpio_get_level(GPIO_NUM_15));
+        vTaskDelay(pdMS_TO_TICKS(blink_period_ms));
+    }
+}
+
 extern "C" void app_main(void) {
+    xTaskCreate(led_blink , "led_blink" , 512 , NULL , 2 , NULL);
+
     ESP_LOGI(TAG , "initializing touch");
     if (que_touch == NULL) {
         que_touch = xQueueCreate(1 , sizeof(touch_event_t));
