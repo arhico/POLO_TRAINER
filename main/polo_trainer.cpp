@@ -672,10 +672,88 @@ IRAM_ATTR int mp3_music_read_cb(audio_element_handle_t el , char* buf , int len 
 #define CONFIG_PWM_LEFT_OUTPUT_GPIO_NUM GPIO_NUM_17
 #define CONFIG_PWM_RIGHT_OUTPUT_GPIO_NUM GPIO_NUM_18
 
+
+
+static void touch_read_task(void* pvParameter) {
+    // touch_set_thresholds();
+    touch_event_t evt;
+    static uint8_t guard_mode_flag = 0;
+    if (!pvParameter) {
+        // audio_event_iface_handle_t iface_handle = (audio_event_iface_handle_t)pvParameter;
+    // } else {
+        ESP_LOGE("touch_read_task" , "touch task can't send audio events cmd with no iface handle specified. waiting for pointer not to be NULL..." , );
+    }
+
+    // while (!pvParameter) {
+    //     vTaskDelay(pdMS_TO_TICKS(10));
+    // }
+
+    ESP_LOGI("touch_read_task" , "entering touch task");
+
+    // audio_event_iface_handle_t iface_handle = (audio_event_iface_handle_t)pvParameter;
+
+
+    while (1) {
+        int ret = xQueueReceive(que_touch , &evt , (TickType_t)portMAX_DELAY);
+        if (ret != pdTRUE) {
+            continue;
+        }
+        if (evt.intr_mask & TOUCH_PAD_INTR_MASK_ACTIVE) {
+            /* if guard pad be touched, other pads no response. */
+            // if (evt.pad_num == button[3]) {
+            //     guard_mode_flag = 1;
+            //     ESP_LOGW(TAG, "TouchSensor [%"PRIu32"] be activated, enter guard mode", evt.pad_num);
+            // } else {
+            //     if (guard_mode_flag == 0) {
+            ESP_LOGI("touch_read_task" , "touch [%"PRIu32"] is activated, status mask 0x%"PRIu32"" , evt.pad_num , evt.pad_status);
+        // } else {
+
+            if (pvParameter != NULL) {
+                // if (pvParameter) {
+                audio_pipeline_handle_t pipe_handle = (audio_pipeline_handle_t)pvParameter;
+            // }
+            // audio_event_iface_msg_t msg;
+            // msg.source_type = 131072;
+            // msg.source = (void*)mp3_decoder;
+            // msg.cmd = AEL_MSG_CMD_RESUME;
+            // msg.data_len = 4;
+            // audio_event_iface_cmd(iface_handle , &msg);
+                ESP_LOGW("touch_read_task" , "resetting pipeline");
+                audio_pipeline_reset_elements(pipe_handle);
+                audio_pipeline_run(pipe_handle);
+            }
+
+            // ESP_LOGW(TAG, "In guard mode. No response");
+        // }
+    // }
+        }
+        if (evt.intr_mask & TOUCH_PAD_INTR_MASK_INACTIVE) {
+            /* if guard pad be touched, other pads no response. */
+            // if (evt.pad_num == button[3]) {
+                // guard_mode_flag = 0;
+                // ESP_LOGW(TAG, "TouchSensor [%"PRIu32"] be inactivated, exit guard mode", evt.pad_num);
+            // } else {
+                // if (guard_mode_flag == 0) {
+            ESP_LOGI("touch_read_task" , "touch [%"PRIu32"] deactivated, status mask 0x%"PRIu32 , evt.pad_num , evt.pad_status);
+        // }
+    // }
+        }
+        if (evt.intr_mask & TOUCH_PAD_INTR_MASK_SCAN_DONE) {
+            ESP_LOGI("touch_read_task" , "touch group measurement done [%"PRIu32"]" , evt.pad_num);
+        }
+        if (evt.intr_mask & TOUCH_PAD_INTR_MASK_TIMEOUT) {
+            ESP_LOGW("touch_read_task" , "touch channel %"PRIu32" measure timeout" , evt.pad_num);
+            touch_pad_timeout_resume(); // Point on the next channel to measure.
+        }
+    }
+}
+
+
 // audio_event_iface_handle_t audio_evt_iface_handle;
 // ESP_LOGI("play_mp3" , "set up  event listener");
 audio_event_iface_cfg_t evt_cfg = AUDIO_EVENT_IFACE_DEFAULT_CFG();
 audio_event_iface_handle_t audio_evt_iface_handle = audio_event_iface_init(&evt_cfg);
+audio_pipeline_handle_t pipeline;
 
 IRAM_ATTR int play_mp3(char* fp) {
 
@@ -687,12 +765,15 @@ IRAM_ATTR int play_mp3(char* fp) {
     }
 
     ESP_LOGI("play_mp3" , "creating audio pipeline");
-    audio_pipeline_handle_t pipeline;
     audio_element_handle_t mp3_decoder , output_stream_writer;
     audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
     // pipeline_cfg.rb_size = 2048;
     pipeline = audio_pipeline_init(&pipeline_cfg);
     mem_assert(pipeline);
+
+
+    xTaskCreate(touch_read_task , "touch_read" , 4096 , (void*)pipeline , 15 , NULL);
+
 
     ESP_LOGI("play_mp3" , "create output stream to write to pwm");
     pwm_stream_cfg_t pwm_cfg = PWM_STREAM_CFG_DEFAULT();
@@ -837,80 +918,6 @@ static void touch_set_thresholds(void) {
     }
 }
 
-static void touch_read_task(void* pvParameter) {
-    // touch_set_thresholds();
-    touch_event_t evt;
-    static uint8_t guard_mode_flag = 0;
-    if (!pvParameter) {
-        // audio_event_iface_handle_t iface_handle = (audio_event_iface_handle_t)pvParameter;
-    // } else {
-        ESP_LOGE("touch_read_task" , "touch task can't send audio events cmd with no iface handle specified. waiting for pointer not to be NULL..." , );
-    }
-
-    while (!pvParameter) {
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-
-    ESP_LOGI("touch_read_task" , "entering touch task");
-
-    audio_event_iface_handle_t iface_handle = (audio_event_iface_handle_t)pvParameter;
-
-
-    while (1) {
-        int ret = xQueueReceive(que_touch , &evt , (TickType_t)portMAX_DELAY);
-        if (ret != pdTRUE) {
-            continue;
-        }
-        if (evt.intr_mask & TOUCH_PAD_INTR_MASK_ACTIVE) {
-            /* if guard pad be touched, other pads no response. */
-            // if (evt.pad_num == button[3]) {
-            //     guard_mode_flag = 1;
-            //     ESP_LOGW(TAG, "TouchSensor [%"PRIu32"] be activated, enter guard mode", evt.pad_num);
-            // } else {
-            //     if (guard_mode_flag == 0) {
-            ESP_LOGI(TAG , "touch [%"PRIu32"] is activated, status mask 0x%"PRIu32"" , evt.pad_num , evt.pad_status);
-        // } else {
-
-
-            if (pvParameter) {
-
-                audio_event_iface_msg_t msg;
-                // msg = {0};
-                msg.source_type = 0;
-                msg.source = NULL;
-                msg.cmd = AEL_MSG_CMD_RESUME;
-
-                    // audio_event_iface_cmd();
-            }
-
-
-            // ESP_LOGW(TAG, "In guard mode. No response");
-        // }
-    // }
-        }
-        if (evt.intr_mask & TOUCH_PAD_INTR_MASK_INACTIVE) {
-            /* if guard pad be touched, other pads no response. */
-            // if (evt.pad_num == button[3]) {
-                // guard_mode_flag = 0;
-                // ESP_LOGW(TAG, "TouchSensor [%"PRIu32"] be inactivated, exit guard mode", evt.pad_num);
-            // } else {
-                // if (guard_mode_flag == 0) {
-            ESP_LOGI(TAG , "touch [%"PRIu32"] deactivated, status mask 0x%"PRIu32 , evt.pad_num , evt.pad_status);
-        // }
-    // }
-        }
-        if (evt.intr_mask & TOUCH_PAD_INTR_MASK_SCAN_DONE) {
-            ESP_LOGI(TAG , "touch group measurement done [%"PRIu32"]" , evt.pad_num);
-        }
-        if (evt.intr_mask & TOUCH_PAD_INTR_MASK_TIMEOUT) {
-            /* Add your exception handling in here. */
-            ESP_LOGW(TAG , "touch channel %"PRIu32" measure timeout" , evt.pad_num);
-            touch_pad_timeout_resume(); // Point on the next channel to measure.
-        }
-    }
-}
-
-
 esp_err_t properly_inited = ESP_OK;
 
 extern "C" void app_main(void) {
@@ -982,7 +989,6 @@ extern "C" void app_main(void) {
 
     int timeout = 0;
 
-    xTaskCreate(touch_read_task , "touch_read" , 4096 , (void*)audio_evt_iface_handle , 15 , NULL);
 
 #define TIMEOUT 20
 
