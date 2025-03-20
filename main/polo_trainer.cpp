@@ -186,35 +186,42 @@ static char const* string_desc_arr[] = {
 
 // mount the partition and show all the files in BASE_PATH
 
-char name[33];
-char full_name[512];
+enum filetypes_t {
+    UNDEFINED = -1 ,
+    WAV_FILETYPE ,
+    MP3_FILETYPE ,
+};
+
+RTC_SLOW_ATTR static char name[33];
+RTC_SLOW_ATTR static char full_name[512];
+RTC_SLOW_ATTR static bool name_obtained = false;
+RTC_SLOW_ATTR static int filetype = UNDEFINED;
 
 IRAM_ATTR static esp_err_t _mount_and_find_1_audio() {
-    static bool name_obtained = false;
     ESP_LOGI(TAG , "Mount storage...");
     ESP_ERROR_CHECK(tinyusb_msc_storage_mount(BASE_PATH));
-
-    // List all the files in this directory
-    ESP_LOGI(TAG , "\nls command output:");
-    struct dirent* d;
-    DIR* dh = opendir(BASE_PATH);
-    if (!dh) {
-        if (errno == ENOENT) {
-            //If the directory is not found
-            ESP_LOGE(TAG , "Directory doesn't exist %s" , BASE_PATH);
-        } else {
-            //If the directory is not readable then throw error and exit
-            ESP_LOGE(TAG , "Unable to read directory %s" , BASE_PATH);
+    if (!name_obtained) {
+        // List all the files in this directory
+        ESP_LOGI(TAG , "\nls command output:");
+        struct dirent* d;
+        DIR* dh = opendir(BASE_PATH);
+        if (!dh) {
+            if (errno == ENOENT) {
+                //If the directory is not found
+                ESP_LOGE(TAG , "Directory doesn't exist %s" , BASE_PATH);
+            } else {
+                //If the directory is not readable then throw error and exit
+                ESP_LOGE(TAG , "Unable to read directory %s" , BASE_PATH);
+            }
+            return -1;
         }
-        return -1;
-    }
 
-    char ext_buf[4] = {0};
-        //While the next entry is not readable we will print directory files
-    while ((d = readdir(dh)) != NULL) {
-        printf("%s, %d\n" , d->d_name , (int)d->d_type);
+        char ext_buf[4] = {0};
+            // while the next entry is not readable we will print directory files
+        while ((d = readdir(dh)) != NULL) {
+            printf("%s, %d\n" , d->d_name , (int)d->d_type);
 
-        if (!name_obtained) {
+
             for (int i = 0; ; i++) {
                 if (d->d_name[i] == '\0') {
                     ext_buf[3] = d->d_name[i - 1];
@@ -223,12 +230,21 @@ IRAM_ATTR static esp_err_t _mount_and_find_1_audio() {
                     ext_buf[0] = d->d_name[i - 4];
                     if (ext_buf[0] == '.' && (
                         ((ext_buf[1] == 'w' || ext_buf[1] == 'W') &&
-                        (ext_buf[2] == 'a' || ext_buf[2] == 'A') &&
+                            (ext_buf[2] == 'a' || ext_buf[2] == 'A') &&
                             (ext_buf[3] == 'v' || ext_buf[3] == 'V')) ||
                         ((ext_buf[1] == 'm' || ext_buf[1] == 'M') &&
                             (ext_buf[2] == 'p' || ext_buf[2] == 'P') &&
                             (ext_buf[3] == '3' || ext_buf[3] == '3')))) {
                         name_obtained = true;
+
+                        if (ext_buf[1] == 'w' || ext_buf[1] == 'W') {
+                            filetype = WAV_FILETYPE;
+                        }
+
+                        if (ext_buf[1] == 'm' || ext_buf[1] == 'M') {
+                            filetype = MP3_FILETYPE;
+                        }
+
                         int ext_idx = i - 4;
                         for (size_t k = 0; k < 32; k++) {
                             if (k == ext_idx) break;
@@ -931,13 +947,29 @@ extern "C" void app_main(void) {
 
     int timeout = 0;
 
-
 #define TIMEOUT 20
 
     if (properly_inited == ESP_OK && cause == ESP_SLEEP_WAKEUP_TOUCHPAD) {
         // play audio
         // play_wav(full_name);
-        play_mp3(full_name);
+        esp_err_t ret = ESP_OK;
+        switch (filetype) {
+            case WAV_FILETYPE:
+                ret = play_wav(full_name);
+                break;
+
+            case MP3_FILETYPE:
+                ret = play_mp3(full_name);
+                break;
+
+            default:
+                break;
+        }
+
+        if (ret != ESP_OK) {
+            name_obtained = false;
+
+        }
 
         // esp_deep_sleep_start();
     }
@@ -959,15 +991,19 @@ extern "C" void app_main(void) {
         };
         esp_err_t err = (tinyusb_driver_install(&tusb_cfg));
         normalizing_coeff = -1;
-        while (gpio_get_level(GPIO_NUM_0) == 0) { vTaskDelay(100); }
+        while (gpio_get_level(GPIO_NUM_0) == 0) {
+            if (!tud_ready()) { // doesn't work. TODO
+                goto restart;
+            }
+            vTaskDelay(100);
+        }
         while (gpio_get_level(GPIO_NUM_0) == 1) { vTaskDelay(100); }
+    restart:
         tinyusb_driver_uninstall();
         ESP_LOGW(TAG , "restarting system");
         vTaskDelay(pdMS_TO_TICKS(50));
         while (gpio_get_level(GPIO_NUM_0) == 0) { vTaskDelay(100); }
         esp_restart();
-    // } else {
-
     }
 
     ESP_LOGW(TAG , "going to deep sleep");
