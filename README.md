@@ -15,9 +15,10 @@ another device for interacting with pets. Polo is our family friends pet; hope t
     ✅ user runmodes: FAT disk, audio player
     ✅ WAV support (any samplerate, any bitdepth)
     ✅ MP3 support
-    🕝 retrigger
+    ✅ retrigger
+    🕝 indication
 
 ## Electronics 🕝
-    esp32s2 mini module. audio output is directed to DAC channels via PWM (GPIO17 & GPIO18)
+    esp32s2 mini module. audio output is directed to DAC channels via PWM (GPIO17 & GPIO18). touch channel is defined as TOUCH_1 and it is T2 right now
 ## Build
     project based on espidf 5.4.0 with espadf for esp32s2 target
