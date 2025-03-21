@@ -18,7 +18,8 @@ another device for interacting with pets. Polo is our family friends pet; hope t
 ✅ retrigger\
 ✅ indication\
 🕝 automind wireless hubba protocol (automind hubba is separate project for custom wireless protocol that supports MIDI communication)\
-🕝 digital eq ?
+🕝 digital eq ?\
+🕝 LUFS normilizer w compression/limiter
 
 
 ## Electronics 🕝
