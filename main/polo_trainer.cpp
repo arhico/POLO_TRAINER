@@ -135,10 +135,10 @@ enum filetypes_t {
     MP3_FILETYPE ,
 };
 
-RTC_SLOW_ATTR static char name[33];
-RTC_SLOW_ATTR static char full_name[512];
-RTC_SLOW_ATTR static bool name_obtained = false;
-RTC_SLOW_ATTR static int filetype = UNDEFINED;
+RTC_DATA_ATTR static char name[33];
+RTC_DATA_ATTR static char full_name[512];
+RTC_DATA_ATTR static bool name_obtained = false;
+RTC_DATA_ATTR static int filetype = UNDEFINED;
 
 IRAM_ATTR static esp_err_t _mount_and_find_1_audio() {
     ESP_LOGI(TAG , "Mount storage...");
@@ -781,7 +781,30 @@ static void led_blink(void* args) {
     }
 }
 
+
+
+/* turn FET on and off using internal pull resistors */
+#define AMP_GPIO GPIO_NUM_16
+void amp_switch(bool onoff) {
+    static bool inited = false;
+    if (!inited) {
+        gpio_set_direction(AMP_GPIO , GPIO_MODE_INPUT);
+        gpio_sleep_set_pull_mode(AMP_GPIO , GPIO_PULLDOWN_ONLY);
+        rtc_gpio_pullup_dis(AMP_GPIO);
+        rtc_gpio_pulldown_en(AMP_GPIO);
+        inited = true;
+    }
+    if (onoff) {
+        gpio_set_pull_mode(AMP_GPIO , GPIO_PULLUP_ONLY);
+    } else {
+        gpio_set_pull_mode(AMP_GPIO , GPIO_PULLDOWN_ONLY);
+    }
+
+}
+
 extern "C" void app_main(void) {
+    amp_switch(false);
+
     xTaskCreate(led_blink , "led_blink" , 512 , NULL , 2 , NULL);
 
     ESP_LOGI(TAG , "initializing touch");
@@ -850,6 +873,8 @@ extern "C" void app_main(void) {
 
     if (properly_inited == ESP_OK && cause == ESP_SLEEP_WAKEUP_TOUCHPAD) {
         esp_err_t ret = ESP_OK;
+        amp_switch(true);
+
         switch (filetype) {
             case WAV_FILETYPE:
                 ret = play_wav(full_name);
@@ -865,8 +890,9 @@ extern "C" void app_main(void) {
 
         if (ret != ESP_OK) {
             name_obtained = false;
-
         }
+        amp_switch(false);
+
 
     }
     if (properly_inited != ESP_OK || cause == ESP_SLEEP_WAKEUP_EXT0) {
@@ -894,7 +920,9 @@ extern "C" void app_main(void) {
             vTaskDelay(pdMS_TO_TICKS(100));
         }
         while (gpio_get_level(GPIO_NUM_0) == 1) { vTaskDelay(pdMS_TO_TICKS(100)); }
-    // restart:
+
+        // TODO: go to sleep after timeout
+
         tinyusb_driver_uninstall();
         ESP_LOGW(TAG , "restarting system");
         // vTaskDelay(pdMS_TO_TICKS(50));
