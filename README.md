@@ -1,6 +1,6 @@
 # Polo trainer
 ![Polo](https://github.com/arhico/POLO_TRAINER/blob/main/main/polo_s.jpg?raw=true)
-another device for interacting with pets. Polo is our family friends pet; hope this device will help him to get more efficient in interactions with humans around\
+another device for interacting with pets. Polo is our family friends pet; hope this device will help him to get more efficient in interactions with humans around
 
 ## Instruction
 1. plug USB in
@@ -19,7 +19,7 @@ another device for interacting with pets. Polo is our family friends pet; hope t
 ✅ indication\
 🕝 automind wireless hubba protocol (automind hubba is separate project for custom wireless protocol that supports MIDI communication)\
 🕝 digital eq ?\
-🕝 LUFS normilizer w compression/limiter
+🕝 LUFS normalizer with compression/limiter
 
 
 ## Electronics 🕝

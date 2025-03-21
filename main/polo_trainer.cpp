@@ -37,6 +37,8 @@ typedef struct touch_msg {
 } touch_event_t;
 
 RTC_DATA_ATTR static float normalizing_coeff = -1.0;
+
+#define TRESHOLD_VAL 5 // %
 /*
  * We warn if a secondary serial console is enabled. A secondary serial console is always output-only and
  * hence not very useful for interactive console applications. If you encounter this warning, consider disabling
@@ -535,19 +537,10 @@ static void touch_read_task(void* pvParameter) {
     touch_event_t evt;
     static uint8_t guard_mode_flag = 0;
     if (!pvParameter) {
-        // audio_event_iface_handle_t iface_handle = (audio_event_iface_handle_t)pvParameter;
-    // } else {
         ESP_LOGE("touch_read_task" , "touch task can't send audio events cmd with no iface handle specified. waiting for pointer not to be NULL..." , );
     }
 
-    // while (!pvParameter) {
-    //     vTaskDelay(pdMS_TO_TICKS(10));
-    // }
-
     ESP_LOGI("touch_read_task" , "entering touch task");
-
-    // audio_event_iface_handle_t iface_handle = (audio_event_iface_handle_t)pvParameter;
-
 
     while (1) {
         int ret = xQueueReceive(que_touch , &evt , (TickType_t)portMAX_DELAY);
@@ -747,25 +740,26 @@ static void touchsensor_interrupt_cb(void* arg) {
 }
 
 
+RTC_DATA_ATTR static bool calibrated = false;
+
 static void touch_set_thresholds(void) {
 
-    RTC_DATA_ATTR static bool calibrated = false;
     RTC_DATA_ATTR static uint32_t cal_value;
 
     if (calibrated) {
         ESP_LOGI(TAG , "skipped calibration");
-        touch_pad_set_thresh(TOUCH_1 , cal_value * 0.2);
+        touch_pad_set_thresh(TOUCH_1 , cal_value * TRESHOLD_VAL / 100.0);
 
         // return;
     } else {
-        vTaskDelay(50 / portTICK_PERIOD_MS);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
 
     // for (int i = 0; i < TOUCH_BUTTON_NUM; i++) {
         //read benchmark value
         touch_pad_read_benchmark(TOUCH_1 , &cal_value);
     //set interrupt threshold.
-        touch_pad_set_thresh(TOUCH_1 , cal_value * 0.2);
-        ESP_LOGW(TAG , "touch %d calib %"PRIu32", thresh %"PRIu32 , TOUCH_1 , cal_value , (uint32_t)(cal_value * 0.2));
+        touch_pad_set_thresh(TOUCH_1 , cal_value * TRESHOLD_VAL / 100.0);
+        ESP_LOGW(TAG , "touch %d calib %"PRIu32", thresh %"PRIu32 , TOUCH_1 , cal_value , (uint32_t)(cal_value * TRESHOLD_VAL / 100.0));
         calibrated = true;
     }
 }
@@ -817,6 +811,8 @@ extern "C" void app_main(void) {
     touch_pad_timeout_set(true , TOUCH_PAD_THRESHOLD_MAX);
     /* Register touch interrupt ISR, enable intr type. */
     touch_pad_isr_register(touchsensor_interrupt_cb , NULL , (touch_pad_intr_mask_t)TOUCH_PAD_INTR_MASK_ALL);
+    // touch_pad_set_cnt_mode(TOUCH_1, TOUCHSLOP);
+    touch_pad_set_charge_discharge_times(1000);
     /* If you have other touch algorithm, you can get the measured value after the `TOUCH_PAD_INTR_MASK_SCAN_DONE` interrupt is generated. */
     touch_pad_intr_enable((touch_pad_intr_mask_t)(TOUCH_PAD_INTR_MASK_ACTIVE | TOUCH_PAD_INTR_MASK_INACTIVE | TOUCH_PAD_INTR_MASK_TIMEOUT));
     touch_pad_set_fsm_mode(TOUCH_FSM_MODE_TIMER);
@@ -913,6 +909,7 @@ extern "C" void app_main(void) {
         };
         esp_err_t err = (tinyusb_driver_install(&tusb_cfg));
         normalizing_coeff = -1;
+        calibrated = false; // recalibrate
         while (gpio_get_level(GPIO_NUM_0) == 0) {
             // if (!tud_ready()) { // doesn't work. TODO
             //     goto restart;
